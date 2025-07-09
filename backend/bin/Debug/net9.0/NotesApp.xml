@@ -1,0 +1,107 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>NotesApp</name>
+    </assembly>
+    <members>
+        <member name="M:NotesApp.Controllers.AuthController.Login(NotesApp.DTOs.LoginDto)">
+            <summary>
+            Login with email address
+            </summary>
+            <param name="loginDto">Login credentials</param>
+            <returns>JWT token and user information</returns>
+        </member>
+        <member name="M:NotesApp.Controllers.AuthController.RefreshToken">
+            <summary>
+            Refresh JWT token
+            </summary>
+            <returns>New JWT token</returns>
+        </member>
+        <member name="M:NotesApp.Controllers.AuthController.Logout">
+            <summary>
+            Logout current user
+            </summary>
+            <returns>Success confirmation</returns>
+        </member>
+        <member name="M:NotesApp.Controllers.AuthController.GetCurrentUser">
+            <summary>
+            Get current user information
+            </summary>
+            <returns>Current user details</returns>
+        </member>
+        <member name="M:NotesApp.Controllers.NotesController.GetNotes(System.String,System.Nullable{System.Decimal},System.Nullable{System.Decimal},System.Nullable{System.Decimal},System.Nullable{System.Decimal})">
+            <summary>
+            Get notes for a workspace with optional viewport filtering
+            </summary>
+            <param name="workspaceId">Workspace ID</param>
+            <param name="viewportX">Viewport X coordinate (optional)</param>
+            <param name="viewportY">Viewport Y coordinate (optional)</param>
+            <param name="viewportWidth">Viewport width (optional)</param>
+            <param name="viewportHeight">Viewport height (optional)</param>
+            <returns>List of notes</returns>
+        </member>
+        <member name="M:NotesApp.Controllers.NotesController.CreateNote(System.String,NotesApp.DTOs.NoteCreateDto)">
+            <summary>
+            Create a new note
+            </summary>
+            <param name="workspaceId">Workspace ID</param>
+            <param name="noteCreateDto">Note creation data</param>
+            <returns>Created note</returns>
+        </member>
+        <member name="M:NotesApp.Controllers.NotesController.GetNote(System.Guid)">
+            <summary>
+            Get a specific note by ID
+            </summary>
+            <param name="id">Note ID</param>
+            <returns>Note details</returns>
+        </member>
+        <member name="M:NotesApp.Controllers.NotesController.UpdateNote(System.Guid,NotesApp.DTOs.NoteUpdateDto)">
+            <summary>
+            Update a note
+            </summary>
+            <param name="id">Note ID</param>
+            <param name="noteUpdateDto">Note update data</param>
+            <returns>Updated note</returns>
+        </member>
+        <member name="M:NotesApp.Controllers.NotesController.DeleteNote(System.Guid)">
+            <summary>
+            Delete a note
+            </summary>
+            <param name="id">Note ID</param>
+            <returns>Success confirmation</returns>
+        </member>
+        <member name="M:NotesApp.Controllers.NotesController.MoveNote(System.Guid,NotesApp.DTOs.NotePositionUpdateDto)">
+            <summary>
+            Move a note to a new position
+            </summary>
+            <param name="id">Note ID</param>
+            <param name="positionUpdateDto">New position data</param>
+            <returns>Updated note</returns>
+        </member>
+        <member name="M:NotesApp.Controllers.UsersController.GetOnlineUsers">
+            <summary>
+            Get all online users
+            </summary>
+            <returns>List of online users</returns>
+        </member>
+        <member name="M:NotesApp.Controllers.UsersController.UpdatePresence(NotesApp.DTOs.PresenceUpdateDto)">
+            <summary>
+            Update user presence (online/offline)
+            </summary>
+            <param name="presenceUpdateDto">Presence update data</param>
+            <returns>Success confirmation</returns>
+        </member>
+        <member name="T:NotesApp.Migrations.InitialCreate">
+            <inheritdoc />
+        </member>
+        <member name="M:NotesApp.Migrations.InitialCreate.Up(Microsoft.EntityFrameworkCore.Migrations.MigrationBuilder)">
+            <inheritdoc />
+        </member>
+        <member name="M:NotesApp.Migrations.InitialCreate.Down(Microsoft.EntityFrameworkCore.Migrations.MigrationBuilder)">
+            <inheritdoc />
+        </member>
+        <member name="M:NotesApp.Migrations.InitialCreate.BuildTargetModel(Microsoft.EntityFrameworkCore.ModelBuilder)">
+            <inheritdoc />
+        </member>
+    </members>
+</doc>
