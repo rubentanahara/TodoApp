@@ -44,6 +44,7 @@ builder.Services.AddScoped<IRepository<UserCursor>, Repository<UserCursor>>();
 builder.Services.AddScoped<INoteService, NoteService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IUserCursorService, UserCursorService>();
 
 // Add memory cache
 builder.Services.AddMemoryCache();

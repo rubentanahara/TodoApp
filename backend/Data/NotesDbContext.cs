@@ -70,8 +70,7 @@ public class NotesDbContext : DbContext
             entity.HasIndex(e => new { e.UserEmail, e.WorkspaceId }).IsUnique();
         });
 
-        // Configure Id generation for UserCursor
-        modelBuilder.Entity<UserCursor>().Property(e => e.Id).ValueGeneratedOnAdd();
+        // Note: Removed ValueGeneratedOnAdd for UserCursor since we manually set the Id
     }
 
     public override int SaveChanges()

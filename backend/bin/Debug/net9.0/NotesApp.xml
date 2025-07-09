@@ -29,6 +29,22 @@
             </summary>
             <returns>Current user details</returns>
         </member>
+        <member name="M:NotesApp.Controllers.CursorsController.GetWorkspaceCursors(System.String)">
+            <summary>
+            Get all active cursor positions in a workspace
+            </summary>
+            <param name="workspaceId">Workspace identifier</param>
+            <returns>List of active cursors</returns>
+        </member>
+        <member name="M:NotesApp.Controllers.CursorsController.UpdateCursorPosition(System.String,System.Decimal,System.Decimal)">
+            <summary>
+            Update cursor position (fallback to SignalR)
+            </summary>
+            <param name="workspaceId">Workspace identifier</param>
+            <param name="x">X coordinate</param>
+            <param name="y">Y coordinate</param>
+            <returns>Updated cursor information</returns>
+        </member>
         <member name="M:NotesApp.Controllers.NotesController.GetNotes(System.String,System.Nullable{System.Decimal},System.Nullable{System.Decimal},System.Nullable{System.Decimal},System.Nullable{System.Decimal})">
             <summary>
             Get notes for a workspace with optional viewport filtering
@@ -101,6 +117,18 @@
             <inheritdoc />
         </member>
         <member name="M:NotesApp.Migrations.InitialCreate.BuildTargetModel(Microsoft.EntityFrameworkCore.ModelBuilder)">
+            <inheritdoc />
+        </member>
+        <member name="T:NotesApp.Migrations.FixUserCursorId">
+            <inheritdoc />
+        </member>
+        <member name="M:NotesApp.Migrations.FixUserCursorId.Up(Microsoft.EntityFrameworkCore.Migrations.MigrationBuilder)">
+            <inheritdoc />
+        </member>
+        <member name="M:NotesApp.Migrations.FixUserCursorId.Down(Microsoft.EntityFrameworkCore.Migrations.MigrationBuilder)">
+            <inheritdoc />
+        </member>
+        <member name="M:NotesApp.Migrations.FixUserCursorId.BuildTargetModel(Microsoft.EntityFrameworkCore.ModelBuilder)">
             <inheritdoc />
         </member>
     </members>

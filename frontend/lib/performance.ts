@@ -1,5 +1,12 @@
 import { useCallback, useRef } from 'react'
 
+// Interface for debounced function with control methods
+interface DebouncedFunction<T extends (...args: any[]) => any> {
+  (...args: Parameters<T>): void
+  flush(): void
+  cancel(): void
+}
+
 // Throttle function for performance optimization
 export const throttle = (func: Function, limit: number) => {
   let inThrottle: boolean
@@ -25,13 +32,46 @@ export const rafThrottle = (func: Function) => {
   }
 }
 
-// Debounce function for performance optimization
-export const debounce = (func: Function, wait: number) => {
-  let timeout: NodeJS.Timeout
-  return function (this: any, ...args: any[]) {
-    clearTimeout(timeout)
-    timeout = setTimeout(() => func.apply(this, args), wait)
+// Enhanced debounce function with flush and cancel methods
+export const debounce = <T extends (...args: any[]) => any>(func: T, wait: number): DebouncedFunction<T> => {
+  let timeout: NodeJS.Timeout | null = null
+  let lastArgs: Parameters<T> | null = null
+  let lastThis: any = null
+
+  const debounced = function (this: any, ...args: Parameters<T>) {
+    lastArgs = args
+    lastThis = this
+    
+    if (timeout) {
+      clearTimeout(timeout)
+    }
+    
+    timeout = setTimeout(() => {
+      func.apply(lastThis, lastArgs!)
+      timeout = null
+    }, wait)
+  } as DebouncedFunction<T>
+
+  debounced.flush = function () {
+    if (timeout && lastArgs) {
+      clearTimeout(timeout)
+      func.apply(lastThis, lastArgs)
+      timeout = null
+      lastArgs = null
+      lastThis = null
+    }
   }
+
+  debounced.cancel = function () {
+    if (timeout) {
+      clearTimeout(timeout)
+      timeout = null
+      lastArgs = null
+      lastThis = null
+    }
+  }
+
+  return debounced
 }
 
 // Custom hook for throttled callbacks
@@ -43,13 +83,28 @@ export const useThrottledCallback = (callback: Function, delay: number) => {
   }, [])
 }
 
-// Custom hook for debounced callbacks
-export const useDebouncedCallback = (callback: Function, delay: number) => {
-  const debouncedCallback = useRef(debounce(callback, delay))
+// Enhanced custom hook for debounced callbacks with control methods
+export const useDebouncedCallback = <T extends (...args: any[]) => any>(callback: T, delay: number): DebouncedFunction<T> => {
+  const debouncedCallbackRef = useRef(debounce(callback, delay))
   
-  return useCallback((...args: any[]) => {
-    debouncedCallback.current(...args)
+  // Update the callback reference when callback or delay changes
+  const callbackRef = useRef(callback)
+  callbackRef.current = callback
+  
+  const wrappedCallback = useCallback((...args: Parameters<T>) => {
+    debouncedCallbackRef.current(...args)
+  }, []) as DebouncedFunction<T>
+
+  // Add control methods
+  wrappedCallback.flush = useCallback(() => {
+    debouncedCallbackRef.current.flush()
   }, [])
+
+  wrappedCallback.cancel = useCallback(() => {
+    debouncedCallbackRef.current.cancel()
+  }, [])
+
+  return wrappedCallback
 }
 
 // Viewport culling for canvas items

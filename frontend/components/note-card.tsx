@@ -1,34 +1,16 @@
 "use client"
 
-import type React from "react"
-import { useState, useRef, useEffect, memo, useCallback } from "react"
+import React, { useState, useRef, useCallback, useEffect, memo } from "react"
+import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { Card } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Trash2, GripVertical } from "lucide-react"
-import { throttle, rafThrottle, getDisplayName } from "@/lib/performance"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
+import { Trash2, GripVertical, Save, X } from "lucide-react"
+import { Note } from "@/types/api"
+import { rafThrottle, useDebouncedCallback } from "@/lib/performance"
 
-interface Note {
-  id: string
-  content: string
-  author: string
-  createdAt: Date
-  x: number
-  y: number
-  lastModified?: Date
-  collaborators?: string[]
+// Helper function to get display name from email
+const getDisplayName = (email: string): string => {
+  return email.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
 }
 
 interface NoteCardProps {
@@ -43,8 +25,11 @@ interface NoteCardProps {
 }
 
 const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userColor, onUpdate, onDelete, onMove }: NoteCardProps) => {
-  const [isEditing, setIsEditing] = useState(note.content === "")
+  const [isEditing, setIsEditing] = useState(isOwner && (note.content === "" || note.content === "New note"))
   const [content, setContent] = useState(note.content)
+  const [originalContent, setOriginalContent] = useState(note.content)
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const [mouseOffset, setMouseOffset] = useState({ x: 0, y: 0 }) // Offset from mouse to note corner
   const [currentPosition, setCurrentPosition] = useState({ x: note.x, y: note.y })
@@ -58,10 +43,17 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
   // Memoize time string
   const timeString = note.createdAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
 
-  // RAF-based throttled move for data persistence only
-  const rafThrottledMove = useRef(
-    rafThrottle((id: string, x: number, y: number) => {
+  // Debounced move for backend persistence with longer delay to prevent flooding
+  const debouncedMove = useRef(
+    useDebouncedCallback((id: string, x: number, y: number) => {
       onMove(id, x, y)
+    }, 500) // 500ms debounce - only send to backend after user stops moving for 500ms
+  ).current
+
+  // RAF-based throttled move for immediate visual feedback only
+  const rafThrottledVisualUpdate = useRef(
+    rafThrottle((x: number, y: number) => {
+      setCurrentPosition({ x, y })
     })
   ).current
 
@@ -110,23 +102,32 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
       const newY = canvasMouseY - mouseOffset.y
       
       // Immediate visual update - note follows mouse exactly
-      setCurrentPosition({ x: newX, y: newY })
+      rafThrottledVisualUpdate(newX, newY)
       
-      // Throttled data update for performance
-      rafThrottledMove(note.id, newX, newY)
+      // Debounced backend update - only sends after user stops moving
+      debouncedMove(note.id, newX, newY)
     } else {
       // Fallback: direct positioning
       const newX = clientX - mouseOffset.x
       const newY = clientY - mouseOffset.y
       
-      setCurrentPosition({ x: newX, y: newY })
-      rafThrottledMove(note.id, newX, newY)
+      rafThrottledVisualUpdate(newX, newY)
+      debouncedMove(note.id, newX, newY)
     }
-  }, [isDragging, mouseOffset, note.id, rafThrottledMove])
+  }, [isDragging, mouseOffset, note.id, rafThrottledVisualUpdate, debouncedMove])
 
   useEffect(() => {
     setIsTouchDevice("ontouchstart" in window)
   }, [])
+
+  // Update content and original content when note prop changes
+  useEffect(() => {
+    if (note.content !== originalContent && !isEditing) {
+      setContent(note.content)
+      setOriginalContent(note.content)
+      setHasUnsavedChanges(false)
+    }
+  }, [note.content, originalContent, isEditing])
 
   // Update current position when note position changes externally
   useEffect(() => {
@@ -152,8 +153,40 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
 
   const handleContentChange = useCallback((newContent: string) => {
     setContent(newContent)
-    onUpdate(note.id, newContent)
-  }, [note.id, onUpdate])
+    setHasUnsavedChanges(newContent !== originalContent)
+  }, [originalContent])
+
+  const handleSave = useCallback(async () => {
+    if (!hasUnsavedChanges || isSaving) return
+    
+    // Validate content is not empty
+    const trimmedContent = content.trim()
+    if (!trimmedContent) {
+      // Show error feedback - could use a toast here if available
+      console.warn('Cannot save note with empty content')
+      return
+    }
+    
+    setIsSaving(true)
+    try {
+      await onUpdate(note.id, trimmedContent)
+      setOriginalContent(trimmedContent)
+      setContent(trimmedContent)
+      setHasUnsavedChanges(false)
+      setIsEditing(false)
+    } catch (error) {
+      console.error('Failed to save note:', error)
+      // Optionally show an error toast here
+    } finally {
+      setIsSaving(false)
+    }
+  }, [hasUnsavedChanges, isSaving, onUpdate, note.id, content])
+
+  const handleCancel = useCallback(() => {
+    setContent(originalContent)
+    setHasUnsavedChanges(false)
+    setIsEditing(false)
+  }, [originalContent])
 
   const handleStart = useCallback((clientX: number, clientY: number, e: any) => {
     if (!canDrag || isEditing) return
@@ -215,11 +248,11 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
 
   const handleEnd = useCallback(() => {
     if (isDragging) {
-      // Final position update when drag ends
-      onMove(note.id, currentPosition.x, currentPosition.y)
       setIsDragging(false)
+      // Force a final update to backend when dragging ends
+      debouncedMove.flush()
     }
-  }, [isDragging, note.id, currentPosition, onMove])
+  }, [isDragging, debouncedMove])
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     handleStart(e.clientX, e.clientY, e)
@@ -234,7 +267,9 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
 
   const handleEditClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
-    if (isOwner) setIsEditing(true)
+    if (isOwner) {
+      setIsEditing(true)
+    }
   }, [isOwner])
 
   const handleDelete = useCallback(() => {
@@ -242,14 +277,19 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
   }, [note.id, onDelete])
 
   const handleBlur = useCallback(() => {
-    setIsEditing(false)
-  }, [])
+    // Only exit editing if no unsaved changes, otherwise keep editing mode
+    if (!hasUnsavedChanges) {
+      setIsEditing(false)
+    }
+  }, [hasUnsavedChanges])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Escape") {
-      setIsEditing(false)
+      handleCancel()
+    } else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      handleSave()
     }
-  }, [])
+  }, [handleCancel, handleSave])
 
   const handleStopPropagation = useCallback((e: React.MouseEvent | React.TouchEvent) => {
     e.stopPropagation()
@@ -288,6 +328,13 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
     }
   }, [isDragging, handleMove, handleEnd])
 
+  // Cancel any pending debounced calls when component unmounts
+  useEffect(() => {
+    return () => {
+      debouncedMove.cancel()
+    }
+  }, [debouncedMove])
+
   return (
     <Card
       ref={cardRef}
@@ -296,7 +343,11 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
           ? `ring-2 ${userColor.ring} shadow-xl` 
           : "shadow-md"
       } ${isDragging ? "scale-105 shadow-xl z-50 rotate-2" : ""} ${
-        canDrag && !isEditing ? "cursor-grab active:cursor-grabbing hover:shadow-lg hover:scale-105" : "cursor-default"
+        hasUnsavedChanges ? "ring-2 ring-yellow-400 shadow-lg" : ""
+      } ${
+        canDrag && !isEditing 
+          ? `cursor-grab active:cursor-grabbing hover:shadow-lg hover:scale-105 ${!isOwner ? 'hover:ring-1 hover:ring-blue-300' : ''}` 
+          : "cursor-default"
       } ${isDragging ? "" : "transition-all duration-200"}`}
       style={{
         left: isDragging ? currentPosition.x : note.x,
@@ -308,68 +359,84 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
       onMouseDown={handleMouseDown}
       onTouchStart={handleTouchStart}
     >
-      <div className="flex items-start justify-between mb-2">
-        <div className="flex items-center gap-2">
-          <Badge className={`text-xs ${userColor.bg} ${userColor.text} border-0`}>
-            {displayName}
-          </Badge>
-          {isHighlighted && (
-            <div className="text-xs text-muted-foreground font-medium">
-              highlighted
-            </div>
+      <div className="flex justify-between items-start mb-2">
+        <div className={`text-xs font-medium px-2 py-1 rounded-full ${userColor.bg} ${userColor.text} flex items-center gap-1`}>
+          <div className={`w-2 h-2 rounded-full ${userColor.accent}`} />
+          {displayName}
+          {hasUnsavedChanges && (
+            <div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" title="Unsaved changes" />
           )}
         </div>
+
         <div className="flex items-center gap-1">
           {isOwner && (
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 w-7 sm:h-6 sm:w-6 p-0 hover:bg-destructive hover:text-destructive-foreground touch-manipulation"
-                  onClick={handleStopPropagation}
-                >
-                  <Trash2 className="w-3 h-3" />
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent className="mx-4 max-w-md">
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Delete Note</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Are you sure you want to delete this note? This action cannot be undone.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter className="flex-col sm:flex-row gap-2">
-                  <AlertDialogCancel className="w-full sm:w-auto">Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={handleDelete}
-                    className="w-full sm:w-auto bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                  >
-                    Delete
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleDelete}
+              className="h-6 w-6 p-0 hover:bg-destructive/20 hover:text-destructive"
+              onMouseDown={handleStopPropagation}
+              onTouchStart={handleStopPropagation}
+            >
+              <Trash2 className="w-3 h-3" />
+            </Button>
           )}
-          {canDrag && (
-            <GripVertical className={`w-4 h-4 ${isDragging ? 'text-primary' : 'text-muted-foreground'}`} />
+          
+          {canDrag && !isEditing && (
+            <div className="flex items-center gap-0.5" title={isOwner ? "Drag to move" : "Anyone can move this note"}>
+              <GripVertical className={`w-4 h-4 ${isDragging ? 'text-primary' : 'text-muted-foreground'} ${!isOwner ? 'opacity-70' : ''}`} />
+            </div>
           )}
         </div>
       </div>
 
       {isEditing && isOwner ? (
-        <Textarea
-          ref={textareaRef}
-          value={content}
-          onChange={(e) => handleContentChange(e.target.value)}
-          onBlur={handleBlur}
-          onKeyDown={handleKeyDown}
-          placeholder="Start typing your note..."
-          className="min-h-16 sm:min-h-20 resize-none border-none p-0 focus-visible:ring-0 text-sm sm:text-base"
-          onClick={handleStopPropagation}
-          onMouseDown={handleStopPropagation}
-          onTouchStart={handleStopPropagation}
-        />
+        <div className="space-y-2">
+          <Textarea
+            ref={textareaRef}
+            value={content}
+            onChange={(e) => handleContentChange(e.target.value)}
+            onBlur={handleBlur}
+            onKeyDown={handleKeyDown}
+            placeholder="Start typing your note..."
+            className="min-h-16 sm:min-h-20 resize-none border-none p-0 focus-visible:ring-0 text-sm sm:text-base"
+            onClick={handleStopPropagation}
+            onMouseDown={handleStopPropagation}
+            onTouchStart={handleStopPropagation}
+          />
+          
+          {hasUnsavedChanges && (
+            <div className="flex items-center gap-2 pt-1">
+              <Button
+                size="sm"
+                onClick={handleSave}
+                disabled={isSaving}
+                className="h-7 px-2 text-xs flex items-center gap-1"
+                onMouseDown={handleStopPropagation}
+                onTouchStart={handleStopPropagation}
+              >
+                <Save className="w-3 h-3" />
+                {isSaving ? "Saving..." : "Save"}
+              </Button>
+              
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleCancel}
+                className="h-7 px-2 text-xs hover:bg-destructive/20 hover:text-destructive flex items-center gap-1"
+                onMouseDown={handleStopPropagation}
+                onTouchStart={handleStopPropagation}
+              >
+                <X className="w-3 h-3" />
+                Cancel
+              </Button>
+              
+              <div className="text-xs text-muted-foreground ml-auto">
+                Ctrl+Enter to save, Esc to cancel
+              </div>
+            </div>
+          )}
+        </div>
       ) : (
         <div
           className={`min-h-16 sm:min-h-20 text-sm whitespace-pre-wrap ${
@@ -379,7 +446,7 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
           onMouseDown={handleOwnerStopPropagation}
           onTouchStart={handleOwnerStopPropagation}
         >
-          {content || "Tap to add content..."}
+          {content ? content : "Tap to add content..."}
         </div>
       )}
 

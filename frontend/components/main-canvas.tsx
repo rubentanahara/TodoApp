@@ -1,17 +1,16 @@
 "use client"
 
-import type React from "react"
-
-import { useState, useEffect, useRef, useCallback, useMemo } from "react"
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { UserSidebar } from "@/components/user-sidebar"
 import { NoteCard } from "@/components/note-card"
-import { Plus, LogOut, Menu, ZoomIn, ZoomOut, RotateCcw, Navigation, Maximize2, Minimize2, HelpCircle } from "lucide-react"
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
+import { Plus, LogOut, Menu, ZoomIn, ZoomOut, RotateCcw, Navigation, Maximize2, Minimize2, HelpCircle, Wifi, WifiOff, AlertCircle } from "lucide-react"
+import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { useToast } from "@/hooks/use-toast"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { 
@@ -34,25 +33,15 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+// Backend integration imports
+import { useAuth } from "@/lib/auth"
+import { apiService } from "@/lib/api"
+import { useSignalR } from "@/lib/signalr"
+import { config } from "@/lib/config"
+import { Note, User, NoteDto, UserDto, NoteCreateDto, NoteUpdateDto } from "@/types/api"
 
-interface Note {
-  id: string
-  content: string
-  author: string
-  createdAt: Date
-  x: number
-  y: number
-  lastModified?: Date
-  collaborators?: string[]
-}
-
-interface User {
-  email: string
-  noteCount: number
-  isOnline: boolean
-  cursor?: { x: number; y: number }
-  activeNoteId?: string
-}
+// Using types from backend integration
+// Note and User types are imported from @/types/api
 
 interface CanvasState {
   offset: { x: number; y: number }
@@ -74,12 +63,20 @@ const ZOOM_STEP = 0.25
 const CANVAS_SIZE = { width: 5000, height: 5000 }
 
 export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
+  // Backend integration hooks
+  const { logout } = useAuth()
+  const { isConnected, signalRService } = useSignalR(config.workspace.defaultWorkspaceId)
+  
+  // Component state
   const [notes, setNotes] = useState<Note[]>([])
   const [users, setUsers] = useState<User[]>([])
   const [highlightedUsers, setHighlightedUsers] = useState<string[]>([])
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
   const [isFocusMode, setIsFocusMode] = useState(false)
   const [showKeyboardHelp, setShowKeyboardHelp] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  
   const { toast } = useToast()
   const isMobile = useIsMobile()
   
@@ -93,9 +90,11 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
   })
 
   // Real-time collaboration state
-  const [isConnected, setIsConnected] = useState(false)
-  const [lastSync, setLastSync] = useState<Date>(new Date())
   const [activeCollaborators, setActiveCollaborators] = useState<string[]>([])
+  const [cursors, setCursors] = useState<Map<string, { x: number; y: number }>>(new Map())
+  
+  // Track user-initiated moves to avoid showing notifications for own actions
+  const userInitiatedMoves = useRef<Set<string>>(new Set())
 
   const canvasRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -228,12 +227,17 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     )
   }, [notes, viewportBounds])
 
-  // Memoized visible online users (limit for performance)
+  // Memoized visible online users with cursor data (limit for performance)
   const visibleOnlineUsers = useMemo(() => {
     return users
-      .filter(u => u.isOnline && u.email !== currentUser && u.cursor)
+      .filter(u => u.isOnline && u.email !== currentUser)
+      .map(user => ({
+        ...user,
+        cursor: cursors.get(user.email) || user.cursor
+      }))
+      .filter(u => u.cursor)
       .slice(0, 10) // Limit to 10 cursors for performance
-  }, [users, currentUser])
+  }, [users, currentUser, cursors])
 
   // RAF-based throttled move function for smoother performance
   const rafThrottledMoveNote = useRef(
@@ -244,186 +248,315 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     })
   ).current
 
-  // Debounced cursor updates for better performance
-  const debouncedCursorUpdate = useDebouncedCallback(() => {
-    setUsers(prev => prev.map(user => ({
-      ...user,
-      cursor: user.isOnline ? {
-        x: Math.random() * 1000,
-        y: Math.random() * 1000
-      } : user.cursor
-    })))
-  }, 1000)
+  // Throttled cursor position updates for real-time collaboration
+  const throttledCursorUpdate = useRef(
+    useThrottledCallback((x: number, y: number) => {
+      if (signalRService && isConnected) {
+        signalRService.updateCursor(config.workspace.defaultWorkspaceId, x, y)
+          .catch(error => {
+            console.error('Error updating cursor:', error)
+          })
+      }
+    }, config.performance.cursorUpdateInterval)
+  ).current
 
-  // Initialize data and simulate real-time connection
+  // Initialize data from backend
   useEffect(() => {
-    // Simulate connection
-    setIsConnected(true)
-    
-    // TEMPORARY: Clear localStorage to test from clean state
-    // Comment out these lines after testing
-    if (window.location.search.includes('fresh=true')) {
-      localStorage.removeItem("notes")
-      localStorage.removeItem("users")
-    }
-
-    // Generate 100 demo users
-    const generateUsers = () => {
-      const firstNames = ['Alice', 'Bob', 'Charlie', 'Diana', 'Eve', 'Frank', 'Grace', 'Henry', 'Ivy', 'Jack', 'Kate', 'Leo', 'Maya', 'Noah', 'Olivia', 'Paul', 'Quinn', 'Ruby', 'Sam', 'Tina']
-      const lastNames = ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez', 'Hernandez', 'Lopez', 'Gonzalez', 'Wilson', 'Anderson', 'Thomas', 'Taylor', 'Moore', 'Jackson', 'Martin']
-      const domains = ['example.com', 'demo.org', 'test.net', 'sample.io', 'workspace.dev']
+    const loadData = async () => {
+      setIsLoading(true)
+      setError(null)
       
-      const users = []
-      for (let i = 0; i < 100; i++) {
-        const firstName = firstNames[i % firstNames.length]
-        const lastName = lastNames[Math.floor(i / firstNames.length) % lastNames.length]
-        const domain = domains[i % domains.length]
-        const email = `${firstName.toLowerCase()}.${lastName.toLowerCase()}${i > 19 ? i - 19 : ''}@${domain}`
-        users.push(email)
-      }
-      return users
-    }
-
-    // Generate 100 demo notes
-    const generateNotes = (userEmails: string[]) => {
-      const noteContents = [
-        'Welcome to collaborative notes! 🎉\n\nThis is a sample note. You can drag any note from anywhere on the card!',
-        'Real-time collaboration works seamlessly across devices 📱💻\n\nEveryone can edit and move notes!',
-        'Try zooming with Ctrl+scroll or use the buttons.\n\nNavigation is smooth and intuitive! 🚀',
-        'This is a team brainstorming session.\n\n💡 Ideas flow freely here!',
-        'Project roadmap discussion\n\n📋 Let\'s plan our next sprint!',
-        'Meeting notes from today\n\n📝 Action items and decisions',
-        'Design feedback and iterations\n\n🎨 Visual improvements needed',
-        'Code review comments\n\n🔍 Quality assurance notes',
-        'Customer feedback summary\n\n👥 User experience insights',
-        'Sprint planning session\n\n📊 Velocity and capacity planning',
-        'Bug reports and fixes\n\n🐛 Technical debt tracking',
-        'Feature specifications\n\n✨ New functionality requirements',
-        'Marketing campaign ideas\n\n📢 Promotion strategies',
-        'User research findings\n\n🔬 Data-driven insights',
-        'Performance metrics review\n\n📈 Analytics and KPIs',
-        'Team retrospective notes\n\n🔄 Continuous improvement',
-        'Architecture decisions\n\n🏗️ Technical infrastructure',
-        'Security audit results\n\n🔒 Vulnerability assessment',
-        'Database optimization\n\n💾 Query performance tuning',
-        'API documentation updates\n\n📚 Developer resources'
-      ]
-      
-      const notes: Note[] = []
-      for (let i = 0; i < 100; i++) {
-        const author = userEmails[i % userEmails.length]
-        const content = noteContents[i % noteContents.length]
-        const x = Math.random() * 1500 + 100 // Spread across canvas
-        const y = Math.random() * 1000 + 100
-        const createdHours = Math.random() * 24 // Within last 24 hours
-        
-        notes.push({
-          id: `note_${i + 1}`,
-          content,
-          author,
-          createdAt: new Date(Date.now() - createdHours * 60 * 60 * 1000),
-          lastModified: new Date(Date.now() - (createdHours * 0.5) * 60 * 60 * 1000),
-          collaborators: [author],
-          x,
-          y,
-        })
-      }
-      return notes
-    }
-
-    const demoUserEmails = generateUsers()
-    const demoNotes = generateNotes(demoUserEmails)
-
-    // Check for existing notes, if none exist, use demo notes
-    const savedNotes = localStorage.getItem("notes")
-    let notesToUse = demoNotes
-    
-    if (savedNotes) {
       try {
-        const parsedNotes = JSON.parse(savedNotes)
-        if (parsedNotes.length > 0) {
-          notesToUse = parsedNotes.map((note: any) => ({
-            ...note,
-            createdAt: new Date(note.createdAt),
-            lastModified: note.lastModified ? new Date(note.lastModified) : new Date(note.createdAt),
-            collaborators: note.collaborators || []
-          }))
-        }
-      } catch (e) {
-        console.log("Error parsing saved notes, using demo notes")
-        notesToUse = demoNotes
+        // Load notes and users in parallel
+        const [notesData, usersData] = await Promise.all([
+          apiService.getNotes(config.workspace.defaultWorkspaceId),
+          apiService.getOnlineUsers()
+        ])
+
+        // Convert backend DTOs to frontend models
+        const convertedNotes: Note[] = notesData.map(noteDto => ({
+          id: noteDto.id,
+          content: noteDto.content,
+          author: noteDto.authorEmail,
+          createdAt: new Date(noteDto.createdAt),
+          updatedAt: new Date(noteDto.updatedAt),
+          x: noteDto.x,
+          y: noteDto.y,
+          workspaceId: noteDto.workspaceId,
+          version: noteDto.version,
+          lastModified: new Date(noteDto.updatedAt),
+          collaborators: [noteDto.authorEmail]
+        }))
+
+        const convertedUsers: User[] = usersData.map(userDto => ({
+          id: userDto.id,
+          email: userDto.email,
+          displayName: userDto.displayName,
+          noteCount: convertedNotes.filter(note => note.author === userDto.email).length,
+          isOnline: userDto.isOnline,
+          lastSeen: new Date(userDto.lastSeen),
+          cursor: userDto.isOnline ? { x: 0, y: 0 } : undefined
+        }))
+
+        setNotes(convertedNotes)
+        setUsers(convertedUsers)
+        setActiveCollaborators(convertedUsers.filter(u => u.isOnline && u.email !== currentUser).map(u => u.email))
+        
+        console.log('Loaded notes:', convertedNotes.length)
+        console.log('Loaded users:', convertedUsers.length)
+        
+      } catch (err: any) {
+        console.error('Error loading data:', err)
+        setError(err.message || 'Failed to load data')
+        toast({
+          title: "Error",
+          description: "Failed to load notes and users. Please refresh the page.",
+          variant: "destructive",
+        })
+      } finally {
+        setIsLoading(false)
       }
     }
 
-    // Set notes immediately
-    setNotes(notesToUse)
-    localStorage.setItem("notes", JSON.stringify(notesToUse))
-    console.log("Notes loaded:", notesToUse)
+    loadData()
+  }, [currentUser, toast])
 
-    // Initialize users based on the notes we have
-    let userList: User[] = []
+  // SignalR event handlers
+  useEffect(() => {
+    if (!signalRService || !isConnected) return
 
-    // Add current user
-    userList.push({
-      email: currentUser,
-      noteCount: notesToUse.filter((note) => note.author === currentUser).length,
-      isOnline: true,
-      cursor: { x: 0, y: 0 }
-    })
-
-    // Add all demo users for collaboration simulation
-    demoUserEmails.forEach((email) => {
-      if (email !== currentUser) {
-        userList.push({
-          email,
-          noteCount: notesToUse.filter((note) => note.author === email).length,
-          isOnline: Math.random() > 0.3, // 70% chance to be online
-          cursor: { x: Math.random() * 1000, y: Math.random() * 1000 }
+    const handleNoteCreated = (noteDto: NoteDto) => {
+      console.log('📝 Received NoteCreated event:', {
+        id: noteDto.id,
+        content: noteDto.content,
+        author: noteDto.authorEmail,
+        position: { x: noteDto.x, y: noteDto.y },
+        currentUser: currentUser
+      })
+      
+      const newNote: Note = {
+        id: noteDto.id,
+        content: noteDto.content,
+        author: noteDto.authorEmail,
+        createdAt: new Date(noteDto.createdAt),
+        updatedAt: new Date(noteDto.updatedAt),
+        x: noteDto.x,
+        y: noteDto.y,
+        workspaceId: noteDto.workspaceId,
+        version: noteDto.version,
+        lastModified: new Date(noteDto.updatedAt),
+        collaborators: [noteDto.authorEmail]
+      }
+      
+      console.log('📝 Adding note to local state:', newNote)
+      setNotes(prev => [...prev, newNote])
+      
+      // Only show toast if it's not the current user creating the note
+      if (noteDto.authorEmail !== currentUser) {
+        toast({
+          title: "Note Created",
+          description: `${noteDto.authorEmail} created a new note`,
         })
       }
-    })
+    }
 
-    // Set users and active collaborators
-    setUsers(userList)
-    setActiveCollaborators(userList.filter(u => u.isOnline && u.email !== currentUser).map(u => u.email))
-    localStorage.setItem("users", JSON.stringify(userList))
-    
-    // Debug logging
-    console.log("Users initialized:", userList)
-    console.log("Active collaborators:", userList.filter(u => u.isOnline && u.email !== currentUser))
+    const handleNoteUpdated = (noteDto: NoteDto) => {
+      setNotes(prev => prev.map(note => 
+        note.id === noteDto.id ? {
+          ...note,
+          content: noteDto.content,
+          updatedAt: new Date(noteDto.updatedAt),
+          version: noteDto.version,
+          lastModified: new Date(noteDto.updatedAt)
+        } : note
+      ))
+    }
 
-    // Simulate real-time updates with debounced cursor updates
-    const syncInterval = setInterval(() => {
-      setLastSync(new Date())
-      debouncedCursorUpdate()
-    }, 5000) // Increased interval from 3s to 5s for better performance
+    const handleNoteMoved = (noteDto: NoteDto) => {
+      const isMyNote = noteDto.authorEmail === currentUser
+      const previousNote = notes.find(n => n.id === noteDto.id)
+      const wasUserInitiated = userInitiatedMoves.current.has(noteDto.id)
+      
+      setNotes(prev => prev.map(note => 
+        note.id === noteDto.id ? {
+          ...note,
+          x: noteDto.x,
+          y: noteDto.y,
+          updatedAt: new Date(noteDto.updatedAt),
+          version: noteDto.version,
+          lastModified: new Date(noteDto.updatedAt)
+        } : note
+      ))
 
-    return () => clearInterval(syncInterval)
-  }, [currentUser, debouncedCursorUpdate])
+      // Only show toast when someone ELSE moves YOUR note (not when you move your own note)
+      if (isMyNote && previousNote && !wasUserInitiated) {
+        toast({
+          title: "Your note was moved!",
+          description: `Someone moved your note to help organize the workspace. 🚀`,
+          duration: 3000,
+        })
+      }
+    }
 
-  // Update user note counts when notes change (but not during initial load)
+    const handleNoteDeleted = (noteId: string) => {
+      setNotes(prev => prev.filter(note => note.id !== noteId))
+    }
+
+    const handleUserJoined = (email: string) => {
+      setActiveCollaborators(prev => prev.includes(email) ? prev : [...prev, email])
+      setUsers(prev => prev.map(user => 
+        user.email === email ? { ...user, isOnline: true } : user
+      ))
+    }
+
+    const handleUserLeft = (email: string) => {
+      setActiveCollaborators(prev => prev.filter(e => e !== email))
+      setCursors(prev => {
+        const newCursors = new Map(prev)
+        newCursors.delete(email)
+        return newCursors
+      })
+      setUsers(prev => prev.map(user => 
+        user.email === email ? { ...user, isOnline: false } : user
+      ))
+    }
+
+    const handleCursorMoved = (email: string, x: number, y: number) => {
+      setCursors(prev => new Map(prev).set(email, { x, y }))
+    }
+
+    // Set up event listeners
+    signalRService.on('NoteCreated', handleNoteCreated)
+    signalRService.on('NoteUpdated', handleNoteUpdated)
+    signalRService.on('NoteMoved', handleNoteMoved)
+    signalRService.on('NoteDeleted', handleNoteDeleted)
+    signalRService.on('UserJoined', handleUserJoined)
+    signalRService.on('UserLeft', handleUserLeft)
+    signalRService.on('CursorMoved', handleCursorMoved)
+
+    return () => {
+      signalRService.off('NoteCreated', handleNoteCreated)
+      signalRService.off('NoteUpdated', handleNoteUpdated)
+      signalRService.off('NoteMoved', handleNoteMoved)
+      signalRService.off('NoteDeleted', handleNoteDeleted)
+      signalRService.off('UserJoined', handleUserJoined)
+      signalRService.off('UserLeft', handleUserLeft)
+      signalRService.off('CursorMoved', handleCursorMoved)
+    }
+  }, [signalRService, isConnected, toast, currentUser, notes])
+
+  // Handle reconnection scenarios (page reload, network issues)
   useEffect(() => {
-    // Only update if users are already initialized
+    if (!signalRService) return
+
+    const handleReconnected = async () => {
+      console.log('🔄 SignalR reconnected, refreshing data...')
+      
+      try {
+        // Reload notes and users after reconnection
+        const [notesData, usersData] = await Promise.all([
+          apiService.getNotes(config.workspace.defaultWorkspaceId),
+          apiService.getOnlineUsers()
+        ])
+
+        // Convert and update state
+        const convertedNotes: Note[] = notesData.map(noteDto => ({
+          id: noteDto.id,
+          content: noteDto.content,
+          author: noteDto.authorEmail,
+          createdAt: new Date(noteDto.createdAt),
+          updatedAt: new Date(noteDto.updatedAt),
+          x: noteDto.x,
+          y: noteDto.y,
+          workspaceId: noteDto.workspaceId,
+          version: noteDto.version,
+          lastModified: new Date(noteDto.updatedAt),
+          collaborators: [noteDto.authorEmail]
+        }))
+
+        const convertedUsers: User[] = usersData.map(userDto => ({
+          id: userDto.id,
+          email: userDto.email,
+          displayName: userDto.displayName,
+          noteCount: convertedNotes.filter(note => note.author === userDto.email).length,
+          isOnline: userDto.isOnline,
+          lastSeen: new Date(userDto.lastSeen),
+          cursor: userDto.isOnline ? { x: 0, y: 0 } : undefined
+        }))
+
+        setNotes(convertedNotes)
+        setUsers(convertedUsers)
+        setActiveCollaborators(convertedUsers.filter(u => u.isOnline && u.email !== currentUser).map(u => u.email))
+        
+        toast({
+          title: "Reconnected",
+          description: "Real-time collaboration restored",
+        })
+        
+        console.log('✅ Data refreshed after reconnection')
+      } catch (error) {
+        console.error('❌ Failed to refresh data after reconnection:', error)
+        toast({
+          title: "Reconnection Issue",
+          description: "Please refresh the page if issues persist",
+          variant: "destructive",
+        })
+      }
+    }
+
+    // Listen for reconnection events
+    signalRService.on('Reconnected', handleReconnected)
+
+    return () => {
+      signalRService.off('Reconnected', handleReconnected)
+    }
+  }, [signalRService, currentUser, toast])
+
+  // Update user note counts when notes change
+  useEffect(() => {
     if (users.length > 0) {
       setUsers(prevUsers => {
-        const updatedUsers = prevUsers.map((user) => ({
-          ...user,
-          noteCount: notes.filter((note) => note.author === user.email).length,
-        }))
-        localStorage.setItem("users", JSON.stringify(updatedUsers))
+        // Create a map of current users for quick lookup
+        const currentUsersMap = new Map(prevUsers.map(user => [user.email, user]))
         
-        // Debug logging
-        console.log("Updated users with note counts:", updatedUsers)
-        return updatedUsers
+        // Get all unique authors from notes
+        const allAuthors = new Set(notes.map(note => note.author))
+        
+        // Update existing users and add any missing authors
+        const updatedUsers = Array.from(allAuthors).map(authorEmail => {
+          const existingUser = currentUsersMap.get(authorEmail)
+          const noteCount = notes.filter(note => note.author === authorEmail).length
+          
+          if (existingUser) {
+            // Update existing user's note count
+            return {
+              ...existingUser,
+              noteCount
+            }
+          } else {
+            // Create new user entry for authors not in the users list
+            return {
+              id: `temp-${authorEmail}`,
+              email: authorEmail,
+              displayName: authorEmail.split('@')[0],
+              noteCount,
+              isOnline: activeCollaborators.includes(authorEmail),
+              lastSeen: new Date(),
+              cursor: undefined
+            }
+          }
+        })
+        
+        // Also include users who have no notes (preserve users without notes)
+        const authorsWithNotes = new Set(notes.map(note => note.author))
+        const usersWithoutNotes = prevUsers.filter(user => !authorsWithNotes.has(user.email))
+          .map(user => ({ ...user, noteCount: 0 }))
+        
+        // Combine users with notes and users without notes
+        return [...updatedUsers, ...usersWithoutNotes]
       })
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notes])
-
-  // Save notes to localStorage
-  useEffect(() => {
-    localStorage.setItem("notes", JSON.stringify(notes))
-  }, [notes])
+  }, [notes, activeCollaborators]) // Fixed: removed users.length, added activeCollaborators
 
   // Enhanced canvas pan handlers with zoom support
   const handleCanvasStart = useCallback((clientX: number, clientY: number) => {
@@ -436,19 +569,33 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
   }, [])
 
   const handleCanvasMove = useCallback((clientX: number, clientY: number) => {
-    if (!canvas.isPanning) return
+    if (canvas.isPanning) {
+      const deltaX = clientX - canvas.panStart.x
+      const deltaY = clientY - canvas.panStart.y
 
-    const deltaX = clientX - canvas.panStart.x
-    const deltaY = clientY - canvas.panStart.y
-
-    setCanvas(prev => ({
-      ...prev,
-      offset: {
-        x: prev.lastOffset.x + deltaX,
-        y: prev.lastOffset.y + deltaY
+      setCanvas(prev => ({
+        ...prev,
+        offset: {
+          x: prev.lastOffset.x + deltaX,
+          y: prev.lastOffset.y + deltaY
+        }
+      }))
+    } else {
+      // Update cursor position for real-time collaboration
+      const container = containerRef.current
+      if (container) {
+        const containerRect = container.getBoundingClientRect()
+        // Convert screen coordinates to canvas coordinates
+        const canvasX = (clientX - containerRect.left - canvas.offset.x) / canvas.scale
+        const canvasY = (clientY - containerRect.top - canvas.offset.y) / canvas.scale
+        
+        // Only send updates if cursor is within canvas bounds
+        if (canvasX >= 0 && canvasX <= CANVAS_SIZE.width && canvasY >= 0 && canvasY <= CANVAS_SIZE.height) {
+          throttledCursorUpdate(canvasX, canvasY)
+        }
       }
-    }))
-  }, [canvas.isPanning, canvas.panStart, canvas.lastOffset])
+    }
+  }, [canvas.isPanning, canvas.panStart, canvas.lastOffset, canvas.offset, canvas.scale, throttledCursorUpdate])
 
   const handleCanvasEnd = useCallback(() => {
     setCanvas(prev => ({ ...prev, isPanning: false }))
@@ -573,17 +720,28 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     }
 
     const handleKeyboardShortcuts = (e: KeyboardEvent) => {
-      // Don't trigger shortcuts when user is typing in inputs/textareas or on mobile
+      // Don't trigger shortcuts when user is typing in inputs/textareas
       const activeElement = document.activeElement
       const isEditing = activeElement?.tagName === 'INPUT' || 
                        activeElement?.tagName === 'TEXTAREA' || 
                        (activeElement as HTMLElement)?.contentEditable === 'true'
 
-      // Skip keyboard shortcuts on mobile devices
-      if (isMobile || isEditing) return
+      // Skip keyboard shortcuts when editing (but allow on mobile for space key)
+      if (isEditing) return
 
       // Cross-platform modifier key (Cmd on Mac, Ctrl on Windows/Linux)
       const isModifierPressed = e.metaKey || e.ctrlKey
+
+      // Create Note: Space (works on both desktop and mobile when not editing)
+      if (!isEditing && !isModifierPressed && e.key === ' ') {
+        e.preventDefault()
+        console.log('Space key pressed - creating note')
+        createNote()
+        return
+      }
+
+      // Skip other shortcuts on mobile devices (except space key above)
+      if (isMobile) return
 
       // Zoom In: Ctrl/Cmd + Plus or Ctrl/Cmd + =
       if (isModifierPressed && (e.key === '=' || e.key === '+')) {
@@ -621,13 +779,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
       if (!isEditing && !isModifierPressed && e.key.toLowerCase() === 'm') {
         e.preventDefault()
         setIsFocusMode(prev => !prev)
-        return
-      }
-
-      // Create Note: Space (only when not editing)
-      if (!isEditing && !isModifierPressed && e.key === ' ') {
-        e.preventDefault()
-        createNote()
         return
       }
 
@@ -755,10 +906,44 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     }
   }, [canvas.isPanning, canvas.pinchStart, handleCanvasMove, handleCanvasEnd])
 
+  // Add cursor tracking for real-time collaboration
+  useEffect(() => {
+    const handleCanvasMouseMove = (e: MouseEvent) => {
+      // Only track cursor when not panning/dragging
+      if (!canvas.isPanning) {
+        const container = containerRef.current
+        if (container) {
+          const containerRect = container.getBoundingClientRect()
+          // Convert screen coordinates to canvas coordinates
+          const canvasX = (e.clientX - containerRect.left - canvas.offset.x) / canvas.scale
+          const canvasY = (e.clientY - containerRect.top - canvas.offset.y) / canvas.scale
+          
+          // Only send updates if cursor is within canvas bounds
+          if (canvasX >= 0 && canvasX <= CANVAS_SIZE.width && canvasY >= 0 && canvasY <= CANVAS_SIZE.height) {
+            throttledCursorUpdate(canvasX, canvasY)
+          }
+        }
+      }
+    }
+
+    const canvasElement = canvasRef.current
+    if (canvasElement && signalRService && isConnected) {
+      canvasElement.addEventListener('mousemove', handleCanvasMouseMove)
+      
+      return () => {
+        canvasElement.removeEventListener('mousemove', handleCanvasMouseMove)
+      }
+    }
+  }, [canvas.isPanning, canvas.offset, canvas.scale, signalRService, isConnected, throttledCursorUpdate])
+
   // Enhanced note creation with viewport consideration
-  const createNote = () => {
+  const createNote = async () => {
+    console.log('createNote function called')
     const container = containerRef.current
-    if (!container) return
+    if (!container) {
+      console.error('Container ref not available')
+      return
+    }
 
     const containerRect = container.getBoundingClientRect()
     const centerX = containerRect.width / 2
@@ -768,45 +953,226 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     const canvasX = (centerX - canvas.offset.x) / canvas.scale
     const canvasY = (centerY - canvas.offset.y) / canvas.scale
 
-    const newNote: Note = {
-      id: `note_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      content: "",
-      author: currentUser,
-      createdAt: new Date(),
-      lastModified: new Date(),
-      collaborators: [],
+    const noteData: NoteCreateDto = {
+      content: "New note", // Default content to prevent empty notes
       x: canvasX - 128, // Center the note
       y: canvasY - 64,
     }
     
-    setNotes((prev) => [...prev, newNote])
+    console.log('🚀 Creating note with data:', noteData)
+    console.log('📡 SignalR connected:', isConnected, 'Service available:', !!signalRService)
     
-    // Simulate real-time broadcast
-    setTimeout(() => {
-      setActiveCollaborators(prev => [...prev.filter(c => c !== currentUser), currentUser])
-    }, 100)
+    try {
+      // Create note via SignalR for real-time collaboration
+      if (signalRService && isConnected) {
+        console.log('Creating note via SignalR')
+        await signalRService.createNote(config.workspace.defaultWorkspaceId, noteData)
+        console.log('Note created via SignalR successfully')
+      } else {
+        console.log('Creating note via API fallback (SignalR not available)')
+        // Fallback to direct API call
+        const createdNote = await apiService.createNote(config.workspace.defaultWorkspaceId, noteData)
+        console.log('Note created via API:', createdNote)
+        const newNote: Note = {
+          id: createdNote.id,
+          content: createdNote.content,
+          author: createdNote.authorEmail,
+          createdAt: new Date(createdNote.createdAt),
+          updatedAt: new Date(createdNote.updatedAt),
+          x: createdNote.x,
+          y: createdNote.y,
+          workspaceId: createdNote.workspaceId,
+          version: createdNote.version,
+          lastModified: new Date(createdNote.updatedAt),
+          collaborators: [createdNote.authorEmail]
+        }
+        setNotes((prev) => [...prev, newNote])
+        console.log('Note added to local state')
+        
+        // Show success toast for API fallback
+        toast({
+          title: "Note Created",
+          description: "New note created successfully",
+        })
+      }
+    } catch (error: any) {
+      console.error('Error creating note:', error)
+      
+      // Check for empty content validation error
+      if (error.message?.includes('content cannot be empty') || error.message?.includes('cannot be empty')) {
+        toast({
+          title: "Cannot Create Empty Note",
+          description: "Please add some content to create a note.",
+          variant: "destructive",
+        })
+      } else {
+        toast({
+          title: "Error",
+          description: error.message || "Failed to create note. Please try again.",
+          variant: "destructive",
+        })
+      }
+    }
   }
 
 
 
-  // Optimized note movement with RAF throttling
-  const moveNote = useCallback((id: string, x: number, y: number) => {
-    rafThrottledMoveNote(id, x, y)
-  }, [rafThrottledMoveNote])
+  // Optimized note movement with backend integration
+  const moveNote = useCallback(async (id: string, x: number, y: number) => {
+    // Get the current note with latest version
+    const currentNote = notes.find(n => n.id === id)
+    if (!currentNote) return
 
-  // Optimized note update
-  const updateNote = useCallback((id: string, content: string) => {
+    // Track this as a user-initiated move to avoid showing notifications
+    userInitiatedMoves.current.add(id)
+    
+    // Remove from tracking after a delay (to handle SignalR round-trip)
+    setTimeout(() => {
+      userInitiatedMoves.current.delete(id)
+    }, 2000) // 2 second window for SignalR round-trip
+
+    // Update local state immediately for responsive UI
+    rafThrottledMoveNote(id, x, y)
+    
+    try {
+      // Send update to backend via SignalR or API
+      if (signalRService && isConnected) {
+        await signalRService.moveNote(id, x, y)
+      } else {
+        await apiService.moveNote(id, { x, y })
+      }
+
+      // No toast notifications for moving notes - notifications only when others move your notes
+    } catch (error: any) {
+      console.error('Error moving note:', error)
+      
+      // Check if it's a version conflict
+      if (error.message?.includes('modified by another user')) {
+        toast({
+          title: "Version Conflict",
+          description: "This note was updated by another user. The page will refresh to get the latest version.",
+          variant: "destructive",
+        })
+        // Refresh the notes to get the latest version
+        setTimeout(() => {
+          window.location.reload()
+        }, 2000)
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to move note. Please try again.",
+          variant: "destructive",
+        })
+        // Revert local change on error
+        setNotes(prev => prev.map(n => n.id === id ? { ...n, x: currentNote.x, y: currentNote.y } : n))
+      }
+    }
+  }, [rafThrottledMoveNote, signalRService, isConnected, notes, toast, currentUser])
+
+  // Optimized note update with backend integration
+  const updateNote = useCallback(async (id: string, content: string) => {
+    console.log('updateNote called for note:', id, 'content:', content)
+    // Get the current note with latest version
+    const currentNote = notes.find(n => n.id === id)
+    if (!currentNote) {
+      console.error('Current note not found for ID:', id)
+      return
+    }
+
+    console.log('Current note found:', currentNote)
+
+    // Update local state immediately for responsive UI
     setNotes(prev => prev.map(note => 
       note.id === id 
         ? { ...note, content, lastModified: new Date() }
         : note
     ))
-  }, [])
 
-  // Optimized note deletion
-  const deleteNote = useCallback((id: string) => {
+    try {
+      const updateData: NoteUpdateDto = {
+        content,
+        version: currentNote.version // Use current version for concurrency control
+      }
+
+      console.log('Update data:', updateData)
+      console.log('SignalR connected:', isConnected, 'Service available:', !!signalRService)
+
+      // Send update to backend via SignalR or API
+      if (signalRService && isConnected) {
+        console.log('Updating note via SignalR')
+        await signalRService.updateNote(id, updateData)
+        console.log('Note updated via SignalR successfully')
+      } else {
+        console.log('Updating note via API fallback (SignalR not available)')
+        await apiService.updateNote(id, updateData)
+        console.log('Note updated via API successfully')
+      }
+    } catch (error: any) {
+      console.error('Error updating note:', error)
+      
+      // Check if it's a version conflict
+      if (error.message?.includes('modified by another user')) {
+        toast({
+          title: "Version Conflict",
+          description: "This note was updated by another user. The page will refresh to get the latest version.",
+          variant: "destructive",
+        })
+        // Refresh the notes to get the latest version
+        setTimeout(() => {
+          window.location.reload()
+        }, 2000)
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to update note. Please try again.",
+          variant: "destructive",
+        })
+        // Revert local change on error
+        setNotes(prev => prev.map(n => n.id === id ? currentNote : n))
+      }
+    }
+  }, [notes, signalRService, isConnected, toast])
+
+  // Optimized note deletion with backend integration
+  const deleteNote = useCallback(async (id: string) => {
+    const currentNote = notes.find(n => n.id === id)
+    if (!currentNote) return
+
+    // Update local state immediately for responsive UI
     setNotes(prev => prev.filter(note => note.id !== id))
-  }, [])
+
+    try {
+      // Send delete to backend via SignalR or API
+      if (signalRService && isConnected) {
+        await signalRService.deleteNote(id)
+      } else {
+        await apiService.deleteNote(id)
+      }
+    } catch (error: any) {
+      console.error('Error deleting note:', error)
+      
+      // Check if it's a version conflict
+      if (error.message?.includes('modified by another user')) {
+        toast({
+          title: "Version Conflict",
+          description: "This note was updated by another user. The page will refresh to get the latest version.",
+          variant: "destructive",
+        })
+        // Refresh the notes to get the latest version
+        setTimeout(() => {
+          window.location.reload()
+        }, 2000)
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to delete note. Please try again.",
+          variant: "destructive",
+        })
+        // Revert local change on error
+        setNotes(prev => [...prev, currentNote])
+      }
+    }
+  }, [notes, signalRService, isConnected, toast])
 
   // Optimized user click handler with memoization
   const handleUserClick = useCallback((userEmail: string) => {
@@ -833,7 +1199,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
   }, [highlightedUsers, notes, toast])
 
   const handleLeaveGroup = () => {
-    onSignOut()
+    handleSignOut()
   }
 
   // Add function to reset demo data
@@ -894,9 +1260,61 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     )
   }
 
+  // Handle sign out
+  const handleSignOut = async () => {
+    console.log('🔐 Starting sign out process...')
+    try {
+      // Step 1: Leave workspace via SignalR
+      if (signalRService && isConnected) {
+        console.log('📡 Leaving workspace via SignalR...')
+        await signalRService.leaveWorkspace(config.workspace.defaultWorkspaceId)
+      }
+      
+      // Step 2: Disconnect SignalR
+      if (signalRService) {
+        console.log('🔌 Disconnecting SignalR...')
+        await signalRService.disconnect()
+      }
+      
+      // Step 3: Logout from backend
+      console.log('🚪 Logging out from backend...')
+      await logout()
+      
+      // Step 4: Call parent callback
+      console.log('✅ Sign out completed successfully')
+      onSignOut()
+    } catch (error) {
+      console.error('❌ Error during sign out:', error)
+      // Force logout even if there's an error
+      onSignOut()
+    }
+  }
+
+  // Show loading state
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center space-y-4">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+          <p className="text-sm text-muted-foreground">Loading notes...</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <TooltipProvider>
       <div className="min-h-screen bg-background flex">
+        {/* Error Alert */}
+        {error && (
+          <div className="fixed top-4 right-4 z-50 w-96">
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          </div>
+        )}
+
         {/* Desktop Sidebar - Hidden in focus mode */}
         {!isFocusMode && (
           <div className="hidden lg:block">
@@ -926,6 +1344,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
                       </Button>
                     </SheetTrigger>
                     <SheetContent side="left" className="p-0 w-80">
+                      <SheetTitle className="sr-only">Group Members</SheetTitle>
                       <UserSidebar
                         users={users}
                         currentUser={currentUser}
@@ -942,8 +1361,9 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
                 
                 <div className="flex items-center gap-2">
                   <h1 className="font-semibold text-sm sm:text-base">Collaborative Notes</h1>
-                  <Badge variant={isConnected ? "default" : "destructive"} className="text-xs">
-                    {isConnected ? "Live" : "Offline"}
+                  <Badge variant={isConnected ? "default" : "destructive"} className="text-xs flex items-center gap-1">
+                    {isConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
+                    {isConnected ? "Live" : "Reconnecting..."}
                   </Badge>
                 </div>
               </div>
@@ -1039,7 +1459,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
                   note={note}
                   isOwner={note.author === currentUser}
                   isHighlighted={highlightedUsers.includes(note.author)}
-                  canDrag={true}
+                  canDrag={true} // Allow all users to drag all notes for better collaboration
                   userColor={getUserColor(note.author, false)}
                   onUpdate={updateNote}
                   onDelete={deleteNote}

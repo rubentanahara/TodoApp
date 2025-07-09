@@ -2,12 +2,14 @@ using System.ComponentModel.DataAnnotations;
 
 namespace NotesApp.DTOs;
 
-public class NoteCreateDto
+public class UserCursorDto
 {
     [Required]
-    [MinLength(1, ErrorMessage = "Note content cannot be empty")]
-    [MaxLength(10000)]
-    public string Content { get; set; } = string.Empty;
+    [EmailAddress]
+    public string UserEmail { get; set; } = string.Empty;
+    
+    [Required]
+    public string WorkspaceId { get; set; } = string.Empty;
     
     [Required]
     [Range(0, 5000)]
@@ -16,4 +18,6 @@ public class NoteCreateDto
     [Required]
     [Range(0, 5000)]
     public decimal Y { get; set; }
+    
+    public DateTime LastUpdated { get; set; }
 } 

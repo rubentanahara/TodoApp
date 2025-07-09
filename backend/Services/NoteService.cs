@@ -4,6 +4,7 @@ using Ganss.Xss;
 using NotesApp.Data;
 using NotesApp.DTOs;
 using NotesApp.Models;
+using System.Collections.Concurrent;
 
 namespace NotesApp.Services;
 
@@ -14,6 +15,10 @@ public class NoteService : INoteService
     private readonly ILogger<NoteService> _logger;
     private readonly HtmlSanitizer _htmlSanitizer;
     private readonly TimeSpan _notesCacheExpiry = TimeSpan.FromMinutes(5);
+    
+    // Rate limiting for move operations per user per note
+    private readonly ConcurrentDictionary<string, DateTime> _lastMoveTime = new();
+    private readonly TimeSpan _moveThrottleInterval = TimeSpan.FromMilliseconds(100); // Max 10 moves per second
 
     public NoteService(IRepository<Note> noteRepository, IMemoryCache cache, ILogger<NoteService> logger)
     {
@@ -27,8 +32,34 @@ public class NoteService : INoteService
     {
         try
         {
+            _logger.LogInformation("Creating note in workspace {WorkspaceId} by {AuthorEmail}. Original content: '{Content}'", 
+                workspaceId, authorEmail, noteCreateDto.Content);
+
+            // Validate content is not empty or whitespace
+            if (string.IsNullOrWhiteSpace(noteCreateDto.Content))
+            {
+                _logger.LogWarning("Note creation failed: empty content for user {AuthorEmail}", authorEmail);
+                return new ApiResponse<NoteDto>
+                {
+                    Success = false,
+                    Error = "Note content cannot be empty"
+                };
+            }
+
             // Sanitize content to prevent XSS
-            var sanitizedContent = _htmlSanitizer.Sanitize(noteCreateDto.Content);
+            var sanitizedContent = _htmlSanitizer.Sanitize(noteCreateDto.Content).Trim();
+            _logger.LogInformation("Content after sanitization: '{SanitizedContent}'", sanitizedContent);
+
+            // Double-check after sanitization
+            if (string.IsNullOrWhiteSpace(sanitizedContent))
+            {
+                _logger.LogWarning("Note creation failed: content empty after sanitization for user {AuthorEmail}", authorEmail);
+                return new ApiResponse<NoteDto>
+                {
+                    Success = false,
+                    Error = "Note content cannot be empty after sanitization"
+                };
+            }
 
             var note = new Note
             {
@@ -49,8 +80,8 @@ public class NoteService : INoteService
             InvalidateWorkspaceCache(workspaceId);
 
             var noteDto = MapToDto(note);
-            _logger.LogInformation("Created note {NoteId} in workspace {WorkspaceId} by {AuthorEmail}", 
-                note.Id, workspaceId, authorEmail);
+            _logger.LogInformation("Successfully created note {NoteId} in workspace {WorkspaceId} by {AuthorEmail} with content: '{Content}'", 
+                note.Id, workspaceId, authorEmail, noteDto.Content);
             
             return new ApiResponse<NoteDto> { Data = noteDto, Success = true };
         }
@@ -192,7 +223,19 @@ public class NoteService : INoteService
             // Update fields if provided
             if (!string.IsNullOrEmpty(noteUpdateDto.Content))
             {
-                note.Content = _htmlSanitizer.Sanitize(noteUpdateDto.Content);
+                var sanitizedContent = _htmlSanitizer.Sanitize(noteUpdateDto.Content).Trim();
+                
+                // Validate content is not empty after sanitization
+                if (string.IsNullOrWhiteSpace(sanitizedContent))
+                {
+                    return new ApiResponse<NoteDto>
+                    {
+                        Success = false,
+                        Error = "Note content cannot be empty"
+                    };
+                }
+                
+                note.Content = sanitizedContent;
             }
             
             if (noteUpdateDto.X.HasValue)
@@ -289,53 +332,97 @@ public class NoteService : INoteService
     {
         try
         {
-            var note = await _noteRepository.GetByIdAsync(id);
+            // Rate limiting check
+            var rateLimitKey = $"{authorEmail}_{id}";
+            var now = DateTime.UtcNow;
             
-            if (note == null)
+            if (_lastMoveTime.TryGetValue(rateLimitKey, out var lastMove))
             {
-                return new ApiResponse<NoteDto>
+                if (now - lastMove < _moveThrottleInterval)
                 {
-                    Success = false,
-                    Error = "Note not found"
-                };
+                    _logger.LogDebug("Rate limit exceeded for note {NoteId} by {AuthorEmail}", id, authorEmail);
+                    return new ApiResponse<NoteDto>
+                    {
+                        Success = false,
+                        Error = "Too many move requests. Please slow down."
+                    };
+                }
             }
-
-            // Check if user is the author
-            if (note.AuthorEmail != authorEmail)
-            {
-                return new ApiResponse<NoteDto>
-                {
-                    Success = false,
-                    Error = "You can only move your own notes"
-                };
-            }
-
-            // Validate coordinates
-            if (x < 0 || x > 5000 || y < 0 || y > 5000)
-            {
-                return new ApiResponse<NoteDto>
-                {
-                    Success = false,
-                    Error = "Invalid coordinates. Must be within 0-5000 range."
-                };
-            }
-
-            note.X = x;
-            note.Y = y;
-            note.UpdatedAt = DateTime.UtcNow;
-            note.Version++;
-
-            await _noteRepository.UpdateAsync(note);
-            await _noteRepository.SaveChangesAsync();
-
-            // Invalidate cache
-            InvalidateNoteCache(id);
-            InvalidateWorkspaceCache(note.WorkspaceId);
-
-            var noteDto = MapToDto(note);
-            _logger.LogDebug("Moved note {NoteId} to ({X}, {Y}) by {AuthorEmail}", id, x, y, authorEmail);
             
-            return new ApiResponse<NoteDto> { Data = noteDto, Success = true };
+            _lastMoveTime[rateLimitKey] = now;
+
+            // Retry logic for concurrency conflicts
+            const int maxRetries = 3;
+            for (int attempt = 0; attempt < maxRetries; attempt++)
+            {
+                try
+                {
+                    var note = await _noteRepository.GetByIdAsync(id);
+                    
+                    if (note == null)
+                    {
+                        return new ApiResponse<NoteDto>
+                        {
+                            Success = false,
+                            Error = "Note not found"
+                        };
+                    }
+
+                    // REMOVED: Ownership check - any authenticated user can now move any note
+                    // This enables collaborative editing where users can help organize notes
+
+                    // Validate coordinates
+                    if (x < 0 || x > 5000 || y < 0 || y > 5000)
+                    {
+                        return new ApiResponse<NoteDto>
+                        {
+                            Success = false,
+                            Error = "Invalid coordinates. Must be within 0-5000 range."
+                        };
+                    }
+
+                    // Check if position actually changed (avoid unnecessary updates)
+                    if (Math.Abs(note.X - x) < 0.1m && Math.Abs(note.Y - y) < 0.1m)
+                    {
+                        _logger.LogDebug("Position unchanged for note {NoteId}, skipping update", id);
+                        return new ApiResponse<NoteDto> { Data = MapToDto(note), Success = true };
+                    }
+
+                    note.X = x;
+                    note.Y = y;
+                    note.UpdatedAt = DateTime.UtcNow;
+                    note.Version++;
+
+                    await _noteRepository.UpdateAsync(note);
+                    await _noteRepository.SaveChangesAsync();
+
+                    // Invalidate cache
+                    InvalidateNoteCache(id);
+                    InvalidateWorkspaceCache(note.WorkspaceId);
+
+                    var noteDto = MapToDto(note);
+                    _logger.LogInformation("Moved note {NoteId} (author: {NoteAuthor}) to ({X}, {Y}) by {MoverEmail}", 
+                        id, note.AuthorEmail, x, y, authorEmail);
+                    
+                    return new ApiResponse<NoteDto> { Data = noteDto, Success = true };
+                }
+                catch (DbUpdateConcurrencyException) when (attempt < maxRetries - 1)
+                {
+                    _logger.LogDebug("Concurrency conflict for note {NoteId}, attempt {Attempt}/{MaxRetries}", 
+                        id, attempt + 1, maxRetries);
+                    
+                    // Wait a short time before retry with exponential backoff
+                    await Task.Delay(TimeSpan.FromMilliseconds(50 * Math.Pow(2, attempt)));
+                    continue;
+                }
+            }
+
+            // If we get here, all retries failed
+            return new ApiResponse<NoteDto>
+            {
+                Success = false,
+                Error = "The note was updated by another user. Please try again."
+            };
         }
         catch (Exception ex)
         {

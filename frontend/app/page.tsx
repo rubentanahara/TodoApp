@@ -1,45 +1,37 @@
 "use client"
 
-import { useState, useEffect } from "react"
 import { SignInScreen } from "@/components/sign-in-screen"
 import { MainCanvas } from "@/components/main-canvas"
+import { useAuthCheck, useAuth } from "@/lib/auth"
 
 export default function Home() {
-  const [user, setUser] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-
-  useEffect(() => {
-    // Check if user is already signed in
-    const savedUser = localStorage.getItem("currentUser")
-    if (savedUser) {
-      setUser(savedUser)
-    }
-    setIsLoading(false)
-  }, [])
+  const { isAuthenticated, user, isLoading } = useAuthCheck()
+  const { logout } = useAuth()
 
   const handleSignIn = (email: string) => {
-    setUser(email)
-    localStorage.setItem("currentUser", email)
+    // This is handled by the auth provider now
+    // The component will re-render when authentication state changes
   }
 
-  const handleSignOut = () => {
-    setUser(null)
-    localStorage.removeItem("currentUser")
-    localStorage.removeItem("notes")
-    localStorage.removeItem("users")
+  const handleSignOut = async () => {
+    // Logout and let the auth provider handle state updates
+    await logout()
   }
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center space-y-4">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+          <p className="text-sm text-muted-foreground">Loading...</p>
+        </div>
       </div>
     )
   }
 
-  if (!user) {
+  if (!isAuthenticated || !user) {
     return <SignInScreen onSignIn={handleSignIn} />
   }
 
-  return <MainCanvas currentUser={user} onSignOut={handleSignOut} />
+  return <MainCanvas currentUser={user.email} onSignOut={handleSignOut} />
 }
