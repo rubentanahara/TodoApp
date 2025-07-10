@@ -2,6 +2,11 @@
 
 # dependencies
 /node_modules
+/.pnp
+.pnp.js
+
+# testing
+/coverage
 
 # next.js
 /.next/
@@ -9,6 +14,7 @@
 
 # production
 /build
+/dist
 
 # debug
 npm-debug.log*
@@ -16,8 +22,12 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files
-.env*
+# local env files
+.env
+.env*.local
+.env.development.local
+.env.test.local
+.env.production.local
 
 # vercel
 .vercel
@@ -25,3 +35,128 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# turbo
+.turbo
+
+# storybook
+storybook-static
+
+# vscode
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# webstorm
+.idea/
+
+# temporary files
+*.tmp
+*.temp
+
+# logs
+logs
+*.log
+
+# runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# coverage directory used by tools like istanbul
+coverage/
+*.lcov
+
+# nyc test coverage
+.nyc_output
+
+# node-sass
+.sass-cache/
+
+# optional npm cache directory
+.npm
+
+# optional eslint cache
+.eslintcache
+
+# microbundle cache
+.rpt2_cache/
+.rts2_cache_cjs/
+.rts2_cache_es/
+.rts2_cache_umd/
+
+# optional repl history
+.node_repl_history
+
+# output of 'npm pack'
+*.tgz
+
+# yarn integrity file
+.yarn-integrity
+
+# next.js build output
+.next
+
+# parcel-bundler cache (https://parceljs.org/)
+.cache
+.parcel-cache
+
+# cypress
+cypress/videos/
+cypress/screenshots/
+
+# playwright
+test-results/
+playwright-report/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# linux
+*~
+
+# editor directories and files
+.vscode/
+!.vscode/extensions.json
+.idea
+*.swp
+*.swo
+*~
+
+# pnpm
+.pnpm-debug.log*
+.pnpm-store/
+
+# lock files (choose one based on your package manager)
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
+
+# local database files
+*.db
+*.sqlite
+*.sqlite3
+
+# backup files
+*.backup
+*.bak
+
+# compressed files
+*.zip
+*.tar.gz
+*.rar
+
+# temporary directories
+tmp/
+temp/
