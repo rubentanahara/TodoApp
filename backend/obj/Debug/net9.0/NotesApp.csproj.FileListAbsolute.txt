@@ -426,3 +426,5 @@
 /app/obj/Debug/net9.0/NotesApp.pdb
 /app/obj/Debug/net9.0/NotesApp.genruntimeconfig.cache
 /app/obj/Debug/net9.0/ref/NotesApp.dll
+/Users/rubentanahara/Documents/dev/apps_for_fun/collaborative_notes/backend/bin/Debug/net9.0/NotesApp.staticwebassets.runtime.json
+/app/bin/Debug/net9.0/NotesApp.staticwebassets.runtime.json

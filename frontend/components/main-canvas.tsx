@@ -65,7 +65,7 @@ const CANVAS_SIZE = { width: 5000, height: 5000 }
 export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
   // Backend integration hooks
   const { logout } = useAuth()
-  const { isConnected, signalRService } = useSignalR(config.workspace.defaultWorkspaceId)
+  const { isConnected, isReconnecting, lastError, signalRService } = useSignalR(config.workspace.defaultWorkspaceId)
   
   // Component state
   const [notes, setNotes] = useState<Note[]>([])
@@ -1361,10 +1361,24 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
                 
                 <div className="flex items-center gap-2">
                   <h1 className="font-semibold text-sm sm:text-base">Collaborative Notes</h1>
-                  <Badge variant={isConnected ? "default" : "destructive"} className="text-xs flex items-center gap-1">
-                    {isConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-                    {isConnected ? "Live" : "Reconnecting..."}
-                  </Badge>
+                  <div className="flex items-center gap-1.5 text-xs">
+                    {isConnected ? (
+                      <>
+                        <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                        <span className="text-green-600 dark:text-green-400">Online</span>
+                      </>
+                    ) : isReconnecting ? (
+                      <>
+                        <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div>
+                        <span className="text-orange-600 dark:text-orange-400">Reconnecting...</span>
+                      </>
+                    ) : (
+                      <>
+                        <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+                        <span className="text-red-600 dark:text-red-400">Offline</span>
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
               
@@ -1499,147 +1513,92 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
             </div>
 
             {/* Canvas Controls - Always visible and properly positioned */}
-            {isMobile ? (
-              // Mobile: Bottom toolbar
-              <div className="fixed bottom-4 left-4 right-4 flex justify-center z-30">
-                <div className="flex gap-2 bg-background/95 backdrop-blur border rounded-full px-4 py-2 shadow-lg">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={zoomOut}
-                        disabled={canvas.scale <= MIN_ZOOM}
-                        className="h-10 w-10 rounded-full"
-                      >
-                        <ZoomOut className="w-4 h-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Zoom Out</TooltipContent>
-                  </Tooltip>
-                  
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={zoomIn}
-                        disabled={canvas.scale >= MAX_ZOOM}
-                        className="h-10 w-10 rounded-full"
-                      >
-                        <ZoomIn className="w-4 h-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Zoom In</TooltipContent>
-                  </Tooltip>
-                  
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button variant="outline" size="sm" onClick={resetCanvas} className="h-10 w-10 rounded-full">
-                        <RotateCcw className="w-4 h-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Reset View</TooltipContent>
-                  </Tooltip>
-                  
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button variant="outline" size="sm" onClick={centerCanvas} className="h-10 w-10 rounded-full">
-                        <Navigation className="w-4 h-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Center on Notes</TooltipContent>
-                  </Tooltip>
-                </div>
+            {/* Always use mobile-style centered toolbar */}
+            <div className="fixed bottom-4 left-4 right-4 flex justify-center z-30">
+              <div className="flex gap-2 bg-background/95 backdrop-blur border rounded-full px-4 py-2 shadow-lg">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={zoomOut}
+                      disabled={canvas.scale <= MIN_ZOOM}
+                      className="h-10 w-10 rounded-full"
+                    >
+                      <ZoomOut className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Zoom Out {!isMobile && "(Ctrl/⌘ + -)"}</TooltipContent>
+                </Tooltip>
+                
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={zoomIn}
+                      disabled={canvas.scale >= MAX_ZOOM}
+                      className="h-10 w-10 rounded-full"
+                    >
+                      <ZoomIn className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Zoom In {!isMobile && "(Ctrl/⌘ + +)"}</TooltipContent>
+                </Tooltip>
+                
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="outline" size="sm" onClick={resetCanvas} className="h-10 w-10 rounded-full">
+                      <RotateCcw className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Reset View {!isMobile && "(Ctrl/⌘ + 0)"}</TooltipContent>
+                </Tooltip>
+                
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="outline" size="sm" onClick={centerCanvas} className="h-10 w-10 rounded-full">
+                      <Navigation className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Center on Notes {!isMobile && "(Ctrl/⌘ + H)"}</TooltipContent>
+                </Tooltip>
+                
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => setIsFocusMode(!isFocusMode)}
+                      className="h-10 w-10 rounded-full"
+                    >
+                      {isFocusMode ? (
+                        <Minimize2 className="w-4 h-4" />
+                      ) : (
+                        <Maximize2 className="w-4 h-4" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {isFocusMode ? 'Exit Focus Mode' : 'Enter Focus Mode'} {!isMobile && "(M)"}
+                  </TooltipContent>
+                </Tooltip>
+                
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => setShowKeyboardHelp(!showKeyboardHelp)}
+                      className="h-10 w-10 rounded-full"
+                    >
+                      <HelpCircle className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Keyboard Shortcuts {!isMobile && "(?)"}</TooltipContent>
+                </Tooltip>
               </div>
-            ) : (
-              // Desktop: Fixed positioned controls - next to sidebar when visible
-              <div className={`fixed bottom-4 ${isFocusMode ? 'left-4' : 'left-[272px]'} flex flex-col gap-2 z-30`}>
-                <div className="flex flex-col gap-1 bg-background/95 backdrop-blur border rounded-lg p-2">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={zoomIn}
-                        disabled={canvas.scale >= MAX_ZOOM}
-                      >
-                        <ZoomIn className="w-4 h-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Zoom In (Ctrl/⌘ + +)</TooltipContent>
-                  </Tooltip>
-                  
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={zoomOut}
-                        disabled={canvas.scale <= MIN_ZOOM}
-                      >
-                        <ZoomOut className="w-4 h-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Zoom Out (Ctrl/⌘ + -)</TooltipContent>
-                  </Tooltip>
-                  
-                  <Separator />
-                  
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button variant="outline" size="sm" onClick={resetCanvas}>
-                        <RotateCcw className="w-4 h-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Reset View (Ctrl/⌘ + 0)</TooltipContent>
-                  </Tooltip>
-                  
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button variant="outline" size="sm" onClick={centerCanvas}>
-                        <Navigation className="w-4 h-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Center on Notes (Ctrl/⌘ + H)</TooltipContent>
-                  </Tooltip>
-                  
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        onClick={() => setIsFocusMode(!isFocusMode)}
-                      >
-                        {isFocusMode ? (
-                          <Minimize2 className="w-4 h-4" />
-                        ) : (
-                          <Maximize2 className="w-4 h-4" />
-                        )}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {isFocusMode ? 'Exit Focus Mode (M)' : 'Enter Focus Mode (M)'}
-                    </TooltipContent>
-                  </Tooltip>
-                  
-                  <Separator />
-                  
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        onClick={() => setShowKeyboardHelp(!showKeyboardHelp)}
-                      >
-                        <HelpCircle className="w-4 h-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Keyboard Shortcuts (?)</TooltipContent>
-                  </Tooltip>
-                </div>
-              </div>
-            )}
+            </div>
 
             {/* Add Note Button - Positioned for optimal access */}
             <Tooltip>
