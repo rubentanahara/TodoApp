@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { ChevronLeft, ChevronRight, X, Download, ExternalLink, ZoomIn, ZoomOut } from "lucide-react"
+import { ChevronLeft, ChevronRight, X, Download, ExternalLink, ZoomIn, ZoomOut, Trash2 } from "lucide-react"
 
 interface ImagePreviewModalProps {
   isOpen: boolean
@@ -13,6 +13,8 @@ interface ImagePreviewModalProps {
   initialIndex?: number
   noteAuthor?: string
   noteContent?: string
+  isOwner?: boolean
+  onDeleteImage?: (index: number) => void
 }
 
 export function ImagePreviewModal({ 
@@ -21,7 +23,9 @@ export function ImagePreviewModal({
   images, 
   initialIndex = 0,
   noteAuthor,
-  noteContent 
+  noteContent,
+  isOwner = false,
+  onDeleteImage
 }: ImagePreviewModalProps) {
   const [currentIndex, setCurrentIndex] = useState(initialIndex)
   const [isZoomed, setIsZoomed] = useState(false)
@@ -75,6 +79,27 @@ export function ImagePreviewModal({
   const handleOpenInNewTab = useCallback(() => {
     window.open(currentImage, '_blank')
   }, [currentImage])
+
+  const handleDeleteImage = useCallback(async () => {
+    if (onDeleteImage && isOwner) {
+      try {
+        await onDeleteImage(currentIndex)
+        
+        // If this was the last image, close the modal
+        if (images.length === 1) {
+          onClose()
+        } else {
+          // Navigate to the next image, or previous if we're at the end
+          if (currentIndex >= images.length - 1) {
+            setCurrentIndex(prev => Math.max(0, prev - 1))
+          }
+        }
+      } catch (error) {
+        console.error('Error deleting image from modal:', error)
+        // Don't close modal or change index if deletion failed
+      }
+    }
+  }, [onDeleteImage, isOwner, currentIndex, images.length, onClose])
 
   // Keyboard navigation
   useEffect(() => {
@@ -135,14 +160,14 @@ export function ImagePreviewModal({
                   {currentIndex + 1} of {images.length}
                 </Badge>
               )}
-              <Button
+              {/* <Button
                 variant="ghost"
                 size="sm"
                 onClick={onClose}
                 className="h-8 w-8 p-0"
               >
                 <X className="w-4 h-4" />
-              </Button>
+              </Button> */}
             </div>
           </div>
           
@@ -230,6 +255,22 @@ export function ImagePreviewModal({
             >
               <ExternalLink className="w-4 h-4" />
             </Button>
+            
+            {/* Delete button - only visible for owners */}
+            {isOwner && onDeleteImage && (
+              <>
+                <div className="w-px h-4 bg-border" />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleDeleteImage}
+                  className="h-8 w-8 p-0 hover:bg-red-500/20 hover:text-red-600"
+                  title="Delete image"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              </>
+            )}
           </div>
         </div>
 

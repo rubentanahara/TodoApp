@@ -1619,6 +1619,102 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     }
   }, [toast, currentUser])
 
+  // Image delete handler
+  const handleImageDelete = useCallback(async (noteId: string, imageUrl: string) => {
+    try {
+      console.log('🗑️ Deleting image:', { noteId, imageUrl })
+      
+      // Send delete via SignalR if available
+      if (signalRService && isConnected) {
+        console.log('📡 Deleting image via SignalR')
+        // TODO: Add SignalR method for image deletion when backend supports it
+        // await signalRService.deleteImage(noteId, imageUrl)
+        
+        // For now, use API call and then refresh
+        const response = await fetch(`${config.api.baseUrl}/api/notes/${noteId}/images`, {
+          method: 'DELETE',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem(config.auth.tokenKey)}`
+          },
+          body: JSON.stringify({ imageUrl })
+        })
+
+        if (!response.ok) {
+          const errorData = await response.json()
+          throw new Error(errorData.error || 'Failed to delete image')
+        }
+        
+        // Refresh the note data to get updated images
+        const updatedNotesData = await apiService.getNotes(config.workspace.defaultWorkspaceId)
+        const updatedNotes: Note[] = updatedNotesData.map(noteDto => ({
+          id: noteDto.id,
+          content: noteDto.content,
+          author: noteDto.authorEmail,
+          createdAt: new Date(noteDto.createdAt),
+          updatedAt: new Date(noteDto.updatedAt),
+          x: noteDto.x,
+          y: noteDto.y,
+          workspaceId: noteDto.workspaceId,
+          version: noteDto.version,
+          lastModified: new Date(noteDto.updatedAt),
+          collaborators: [noteDto.authorEmail],
+          imageUrls: noteDto.imageUrls || [],
+          reactions: (noteDto.reactions || []).map(reaction => ({
+            ...reaction,
+            hasCurrentUser: reaction.users.includes(currentUser)
+          }))
+        }))
+        setNotes(updatedNotes)
+        
+        console.log('✅ Image deleted and notes refreshed')
+      } else {
+        console.log('🔄 Deleting image via API fallback (SignalR not available)')
+        
+        const response = await fetch(`${config.api.baseUrl}/api/notes/${noteId}/images`, {
+          method: 'DELETE',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem(config.auth.tokenKey)}`
+          },
+          body: JSON.stringify({ imageUrl })
+        })
+
+        if (!response.ok) {
+          const errorData = await response.json()
+          throw new Error(errorData.error || 'Failed to delete image')
+        }
+        
+        // Update local state immediately by removing the image from the note
+        setNotes(prev => prev.map(note => 
+          note.id === noteId 
+            ? { 
+                ...note, 
+                imageUrls: note.imageUrls.filter(url => url !== imageUrl),
+                lastModified: new Date()
+              }
+            : note
+        ))
+        
+        console.log('✅ Image deleted via API successfully')
+      }
+      
+      toast({
+        title: "Image deleted",
+        description: "The image has been removed from the note.",
+        duration: 2000,
+      })
+      
+    } catch (error: any) {
+      console.error('❌ Error deleting image:', error)
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete image. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }, [signalRService, isConnected, toast, currentUser])
+
   // Enhanced reaction handlers with better logging
   const handleAddReaction = useCallback(async (noteId: string, reactionType: string) => {
     console.log('🚀 handleAddReaction called:', { noteId, reactionType, isConnected, service: !!signalRService })
@@ -1863,7 +1959,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
 
         {/* Debug Panel - Only in development */}
         {process.env.NODE_ENV === 'development' && (
-          <div className="fixed top-4 left-4 z-50 bg-background/90 backdrop-blur border rounded-lg p-3 text-xs space-y-2 max-w-xs">
+          <div className="fixed bottom-4 right-4 z-50 bg-background/90 backdrop-blur border rounded-lg p-3 text-xs space-y-2 max-w-xs">
             <div className="font-semibold">SignalR Debug</div>
             <div className="space-y-1">
               <div className="flex justify-between">
@@ -2086,6 +2182,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
                   onDelete={deleteNote}
                   onMove={moveNote}
                   onImageUpload={handleImageUpload}
+                  onImageDelete={handleImageDelete}
                   onAddReaction={handleAddReaction}
                   onRemoveReaction={handleRemoveReaction}
                 />

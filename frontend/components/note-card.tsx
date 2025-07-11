@@ -4,7 +4,7 @@ import React, { useState, useRef, useCallback, useEffect, memo } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { Trash2, GripVertical, Save, X, ImagePlus } from "lucide-react"
+import { Trash2, GripVertical, Save, X, ImagePlus, Trash } from "lucide-react"
 import { Note } from "@/types/api"
 import { rafThrottle, useDebouncedCallback } from "@/lib/performance"
 import { ReactionPicker } from "./reaction-picker"
@@ -25,11 +25,12 @@ interface NoteCardProps {
   onDelete: (id: string) => void
   onMove: (id: string, x: number, y: number) => void
   onImageUpload: (noteId: string, file: File) => Promise<void>
+  onImageDelete?: (noteId: string, imageUrl: string) => Promise<void>
   onAddReaction: (noteId: string, reactionType: string) => void
   onRemoveReaction: (noteId: string, reactionType: string) => void
 }
 
-const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userColor, onUpdate, onDelete, onMove, onImageUpload, onAddReaction, onRemoveReaction }: NoteCardProps) => {
+const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userColor, onUpdate, onDelete, onMove, onImageUpload, onImageDelete, onAddReaction, onRemoveReaction }: NoteCardProps) => {
   const [isEditing, setIsEditing] = useState(isOwner && (note.content === "" || note.content === "New note"))
   const [content, setContent] = useState(note.content)
   const [originalContent, setOriginalContent] = useState(note.content)
@@ -236,9 +237,12 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
     const isReactionPicker = target.closest('[data-reaction-picker]') !== null
     const isButton = target.closest('button') !== null
     const isInput = target.closest('input, textarea') !== null
+    const isImage = target.tagName === 'IMG'
+    const isImageContainer = target.closest('.relative.group.cursor-pointer') !== null
+    const isDeleteButton = target.closest('button')?.querySelector('.w-3.h-3') !== null // Delete button has small icon
     
-    if (isReactionPicker || (isButton && !target.closest('[data-drag-handle]')) || isInput) {
-      return // Don't start dragging if clicking on interactive elements
+    if (isReactionPicker || (isButton && !target.closest('[data-drag-handle]')) || isInput || isImage || isImageContainer || isDeleteButton) {
+      return // Don't start dragging if clicking on interactive elements or images
     }
     
     e.stopPropagation()
@@ -350,7 +354,11 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
     if (isOwner) e.stopPropagation()
   }, [isOwner])
 
-  const handleImageClick = useCallback((index: number) => {
+  const handleImageClick = useCallback((index: number, e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault()
+      e.stopPropagation()
+    }
     setSelectedImageIndex(index)
     setShowImagePreview(true)
   }, [])
@@ -358,6 +366,44 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
   const handleCloseImagePreview = useCallback(() => {
     setShowImagePreview(false)
   }, [])
+
+  const handleDeleteImage = useCallback(async (imageIndex: number) => {
+    if (!isOwner) return // Only owners can delete images
+    
+    try {
+      const imageUrl = note.imageUrls[imageIndex]
+      console.log('Deleting image:', { imageIndex, imageUrl })
+      
+      // Use parent callback if provided, otherwise make direct API call
+      if (onImageDelete) {
+        await onImageDelete(note.id, imageUrl)
+        console.log('Image deleted successfully via parent callback')
+      } else {
+        // Fallback to direct API call
+        const { config } = await import('@/lib/config')
+        
+        const response = await fetch(`${config.api.baseUrl}/api/notes/${note.id}/images`, {
+          method: 'DELETE',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem(config.auth.tokenKey)}`
+          },
+          body: JSON.stringify({ imageUrl })
+        })
+
+        if (!response.ok) {
+          const errorData = await response.json()
+          throw new Error(errorData.error || 'Failed to delete image')
+        }
+        
+        console.log('Image deleted successfully via direct API call')
+      }
+      
+    } catch (error: any) {
+      console.error('Error deleting image:', error)
+      // Could show a toast notification here if available
+    }
+  }, [isOwner, note.id, note.imageUrls, onImageDelete])
 
   useEffect(() => {
     if (!isDragging) return
@@ -550,17 +596,24 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
             {(showAllImages ? note.imageUrls : note.imageUrls.slice(0, 3)).map((url, displayIndex) => {
               const actualIndex = showAllImages ? displayIndex : displayIndex
               return (
-                <div key={actualIndex} className="relative group cursor-pointer">
+                <div key={actualIndex} className="relative group cursor-pointer"
+                     onClick={(e) => {
+                       e.stopPropagation()
+                       e.preventDefault()
+                       handleImageClick(actualIndex, e)
+                     }}
+                     onMouseDown={handleStopPropagation}
+                     onTouchStart={handleStopPropagation}
+                >
                   <img 
                     src={url} 
                     alt={`Note image ${actualIndex + 1}`}
-                    className="w-full h-12 object-cover rounded border hover:opacity-90 hover:ring-1 hover:ring-primary/50 transition-all cursor-pointer"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleImageClick(actualIndex)
-                    }}
-                    onMouseDown={handleStopPropagation}
-                    onTouchStart={handleStopPropagation}
+                    className={`w-full h-12 object-cover rounded border hover:opacity-90 transition-all cursor-pointer ${
+                      isOwner 
+                        ? 'hover:ring-1 hover:ring-primary/50' 
+                        : 'hover:ring-1 hover:ring-gray-300'
+                    }`}
+                    style={{ pointerEvents: 'none' }}
                   />
                   {/* Image overlay with number for better organization */}
                   <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity rounded flex items-center justify-center">
@@ -568,6 +621,27 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
                       {actualIndex + 1}
                     </span>
                   </div>
+                  {/* Delete button - only visible for owners */}
+                  {isOwner && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        e.preventDefault()
+                        // Simple confirmation before deletion
+                        if (window.confirm('Are you sure you want to delete this image?')) {
+                          handleDeleteImage(actualIndex)
+                        }
+                      }}
+                      className="absolute top-1 right-1 h-5 w-5 p-0 bg-red-500/80 hover:bg-red-600 text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                      onMouseDown={handleStopPropagation}
+                      onTouchStart={handleStopPropagation}
+                      title="Delete image"
+                    >
+                      <Trash className="w-3 h-3" />
+                    </Button>
+                  )}
                 </div>
               )
             })}
@@ -636,6 +710,8 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
           initialIndex={selectedImageIndex}
           noteAuthor={note.author}
           noteContent={note.content}
+          isOwner={isOwner}
+          onDeleteImage={handleDeleteImage}
         />
       )}
     </Card>
