@@ -102,7 +102,7 @@ export function ReactionPicker({
 
   return (
     <div 
-      className="flex items-center gap-1 mt-1"
+      className="flex items-center gap-1 mt-1 flex-wrap"
       data-reaction-picker
       onClick={handleStopPropagation}
       onMouseDown={handleStopPropagation}
@@ -121,7 +121,7 @@ export function ReactionPicker({
       {displayReactions.map((reaction) => (
         <button
           key={reaction.reactionType}
-          className={`flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs transition
+          className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full border text-xs transition shrink-0
             ${reaction.hasCurrentUser
               ? "border-primary bg-primary/10 text-primary font-semibold"
               : "border-border bg-transparent text-muted-foreground hover:border-accent"}
@@ -133,22 +133,22 @@ export function ReactionPicker({
           onTouchStart={handleStopPropagation}
           disabled={disabled}
         >
-          <span className="text-base">{reaction.reactionType}</span>
-          <span className="font-bold">{reaction.count}</span>
+          <span className="text-sm">{reaction.reactionType}</span>
+          <span className="font-bold text-xs">{reaction.count}</span>
         </button>
       ))}
       <Popover open={isOpen} onOpenChange={setIsOpen}>
         <PopoverTrigger asChild>
           <button
-            className="w-7 h-7 flex items-center justify-center rounded-full border border-accent text-accent bg-transparent hover:bg-accent/10 transition ml-1"
+            className="w-6 h-6 flex items-center justify-center rounded-full border border-accent text-accent bg-transparent hover:bg-accent/10 transition ml-1 shrink-0"
             title="Add reaction"
             aria-label="Add reaction"
             onMouseDown={handleStopPropagation}
             onTouchStart={handleStopPropagation}
             disabled={disabled}
           >
-            <Smile className="w-4 h-4" />
-            <Plus className="w-3 h-3 -ml-1" />
+            <Smile className="w-3 h-3" />
+            {/* <Plus className="w-3 h-3 -ml-1" /> */}
           </button>
         </PopoverTrigger>
         <PopoverContent 

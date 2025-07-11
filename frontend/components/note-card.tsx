@@ -8,6 +8,7 @@ import { Trash2, GripVertical, Save, X, ImagePlus } from "lucide-react"
 import { Note } from "@/types/api"
 import { rafThrottle, useDebouncedCallback } from "@/lib/performance"
 import { ReactionPicker } from "./reaction-picker"
+import { ImagePreviewModal } from "./image-preview-modal"
 
 // Helper function to get display name from email
 const getDisplayName = (email: string): string => {
@@ -40,6 +41,8 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
   const [isTouchDevice, setIsTouchDevice] = useState(false)
   const [isUploadingImage, setIsUploadingImage] = useState(false)
   const [showAllImages, setShowAllImages] = useState(false)
+  const [showImagePreview, setShowImagePreview] = useState(false)
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0)
   const cardRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -347,6 +350,15 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
     if (isOwner) e.stopPropagation()
   }, [isOwner])
 
+  const handleImageClick = useCallback((index: number) => {
+    setSelectedImageIndex(index)
+    setShowImagePreview(true)
+  }, [])
+
+  const handleCloseImagePreview = useCallback(() => {
+    setShowImagePreview(false)
+  }, [])
+
   useEffect(() => {
     if (!isDragging) return
 
@@ -396,12 +408,12 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
   return (
     <Card
       ref={cardRef}
-      className={`absolute w-56 sm:w-64 min-h-28 sm:min-h-32 p-2 sm:p-3 select-none ${
+      className={`absolute w-60 sm:w-72 min-h-32 sm:min-h-36 p-3 sm:p-4 select-none ${
         isHighlighted 
           ? `ring-2 ${userColor.ring} shadow-xl` 
           : "shadow-md"
       } ${isDragging ? "scale-105 shadow-xl z-50 rotate-2" : ""} ${
-        hasUnsavedChanges ? "ring-2 ring-yellow-400 shadow-lg" : ""
+        hasUnsavedChanges ? "ring-1 ring-blue-400 shadow-lg" : ""
       } ${
         canDrag && !isEditing 
           ? `cursor-grab active:cursor-grabbing hover:shadow-lg hover:scale-105 ${!isOwner ? 'hover:ring-1 hover:ring-blue-300' : ''}` 
@@ -417,12 +429,12 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
       onMouseDown={handleMouseDown}
       onTouchStart={handleTouchStart}
     >
-      <div className="flex justify-between items-start mb-2">
-        <div className={`text-xs font-medium px-2 py-1 rounded-full ${userColor.bg} ${userColor.text} flex items-center gap-1`}>
+      <div className="flex justify-between items-start mb-3">
+        <div className={`text-xs font-medium px-3 py-1.5 rounded-full ${userColor.bg} ${userColor.text} flex items-center gap-2`}>
           <div className={`w-2 h-2 rounded-full ${userColor.accent}`} />
           {displayName}
           {hasUnsavedChanges && (
-            <div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" title="Unsaved changes" />
+            <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" title="Unsaved changes" />
           )}
         </div>
 
@@ -449,7 +461,7 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
       </div>
 
       {isEditing && isOwner ? (
-        <div className="space-y-2">
+        <div className="space-y-3">
           <Textarea
             ref={textareaRef}
             value={content}
@@ -457,19 +469,19 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
             onBlur={handleBlur}
             onKeyDown={handleKeyDown}
             placeholder="Start typing your note..."
-            className="min-h-16 sm:min-h-20 resize-none border-none p-0 focus-visible:ring-0 text-sm sm:text-base"
+            className="min-h-20 sm:min-h-24 resize-none border border-border/30 rounded-md p-3 focus-visible:ring-1 focus-visible:ring-blue-400 text-sm sm:text-base bg-background/50"
             onClick={handleStopPropagation}
             onMouseDown={handleStopPropagation}
             onTouchStart={handleStopPropagation}
           />
           
           {hasUnsavedChanges && (
-            <div className="flex items-center gap-2 pt-1">
+            <div className="flex items-center gap-2">
               <Button
                 size="sm"
                 onClick={handleSave}
                 disabled={isSaving}
-                className="h-7 px-2 text-xs flex items-center gap-1"
+                className="h-8 px-3 text-xs flex items-center gap-1.5"
                 onMouseDown={handleStopPropagation}
                 onTouchStart={handleStopPropagation}
               >
@@ -481,23 +493,19 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
                 variant="ghost"
                 size="sm"
                 onClick={handleCancel}
-                className="h-7 px-2 text-xs hover:bg-destructive/20 hover:text-destructive flex items-center gap-1"
+                className="h-8 px-3 text-xs hover:bg-destructive/20 hover:text-destructive flex items-center gap-1.5"
                 onMouseDown={handleStopPropagation}
                 onTouchStart={handleStopPropagation}
               >
                 <X className="w-3 h-3" />
                 Cancel
               </Button>
-              
-              <div className="text-xs text-muted-foreground ml-auto">
-                Ctrl+Enter to save, Esc to cancel
-              </div>
             </div>
           )}
         </div>
       ) : (
         <div
-          className={`min-h-16 sm:min-h-20 text-sm whitespace-pre-wrap ${
+          className={`min-h-20 sm:min-h-24 text-sm whitespace-pre-wrap p-3 rounded-md border border-transparent hover:border-border/30 transition-colors ${
             isOwner ? "cursor-text" : "cursor-default"
           } ${content ? "" : "text-muted-foreground italic"}`}
           onClick={handleEditClick}
@@ -510,7 +518,7 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
 
       {/* Image Gallery - Compact Design */}
       {note.imageUrls && note.imageUrls.length > 0 && (
-        <div className="mt-3 border-t pt-3">
+        <div className="mt-4 border-t pt-4">
           <div className="flex items-center justify-between mb-2">
             <div className="text-xs text-muted-foreground font-medium">
               {note.imageUrls.length} image{note.imageUrls.length !== 1 ? 's' : ''}
@@ -539,28 +547,30 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
                 ? 'max-h-48 overflow-y-auto' 
                 : ''
           }`}>
-            {(showAllImages ? note.imageUrls : note.imageUrls.slice(0, 3)).map((url, index) => (
-              <div key={index} className="relative group">
-                <img 
-                  src={url} 
-                  alt={`Note image ${index + 1}`}
-                  className="w-full h-12 object-cover rounded border cursor-pointer hover:opacity-90 hover:ring-1 hover:ring-primary/50 transition-all"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    // Open image in new tab
-                    window.open(url, '_blank')
-                  }}
-                  onMouseDown={handleStopPropagation}
-                  onTouchStart={handleStopPropagation}
-                />
-                {/* Image overlay with number for better organization */}
-                <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity rounded flex items-center justify-center">
-                  <span className="text-white text-xs font-medium">
-                    {index + 1}
-                  </span>
+            {(showAllImages ? note.imageUrls : note.imageUrls.slice(0, 3)).map((url, displayIndex) => {
+              const actualIndex = showAllImages ? displayIndex : displayIndex
+              return (
+                <div key={actualIndex} className="relative group cursor-pointer">
+                  <img 
+                    src={url} 
+                    alt={`Note image ${actualIndex + 1}`}
+                    className="w-full h-12 object-cover rounded border hover:opacity-90 hover:ring-1 hover:ring-primary/50 transition-all cursor-pointer"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleImageClick(actualIndex)
+                    }}
+                    onMouseDown={handleStopPropagation}
+                    onTouchStart={handleStopPropagation}
+                  />
+                  {/* Image overlay with number for better organization */}
+                  <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity rounded flex items-center justify-center">
+                    <span className="text-white text-xs font-medium">
+                      {actualIndex + 1}
+                    </span>
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
           
           {/* Show preview of hidden images */}
@@ -574,7 +584,7 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
 
       {/* Image Upload Button - Integrated */}
       {isOwner && (
-        <div className="mt-2 pt-2 border-t">
+        <div className="mt-3 pt-3 border-t">
           <Button
             size="sm"
             variant="outline"
@@ -594,7 +604,7 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
       )}
 
       {/* Reactions */}
-      <div className="mt-2 pt-2 border-t">
+      <div className="mt-3 pt-3 border-t overflow-hidden">
         <ReactionPicker
           noteId={note.id}
           reactions={note.reactions}
@@ -613,9 +623,21 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
         className="hidden"
       />
 
-      <div className="text-xs text-muted-foreground mt-2">
+      <div className="text-xs text-muted-foreground mt-3 opacity-70">
         {timeString}
       </div>
+
+      {/* Image Preview Modal */}
+      {note.imageUrls && note.imageUrls.length > 0 && (
+        <ImagePreviewModal
+          isOpen={showImagePreview}
+          onClose={handleCloseImagePreview}
+          images={note.imageUrls}
+          initialIndex={selectedImageIndex}
+          noteAuthor={note.author}
+          noteContent={note.content}
+        />
+      )}
     </Card>
   )
 })

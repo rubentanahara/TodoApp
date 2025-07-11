@@ -59,28 +59,49 @@ class SignalRService {
 
   // Initialize SignalR connection
   async initialize(): Promise<void> {
-    // On page reload, we need to reinitialize even if marked as initialized
-    const isPageReload = !this.connection || this.connection.state === HubConnectionState.Disconnected;
+    // Force reinitialization on page reload or if connection is lost
+    const needsReinitialization = !this.connection || 
+      this.connection.state === HubConnectionState.Disconnected ||
+      this.connection.state === HubConnectionState.Disconnecting;
     
     if (this.isInitialized && this.connection && this.connection.state === HubConnectionState.Connected) {
-      console.log('SignalR already initialized and connected, state:', this.connection.state);
+      console.log('✅ SignalR already initialized and connected, state:', this.connection.state);
       return;
     }
 
-    if (isPageReload) {
-      console.log('Page reload detected or connection lost, reinitializing SignalR...');
+    if (needsReinitialization) {
+      console.log('🔄 Page reload detected or connection lost, reinitializing SignalR...');
       this.reset();
     }
 
     try {
       console.log('Initializing SignalR connection...');
       
+      // Check if user is authenticated before connecting
+      if (!authService.isAuthenticated()) {
+        console.error('❌ User not authenticated, cannot initialize SignalR');
+        throw new Error('User not authenticated');
+      }
+      
+      const token = authService.getToken();
+      if (!token) {
+        console.error('❌ No auth token available for SignalR connection');
+        throw new Error('No authentication token available');
+      }
+      
+      console.log('✅ Authentication validated, building SignalR connection...');
+      
       // Build connection
       this.connection = new HubConnectionBuilder()
         .withUrl(config.signalR.hubUrl, {
           accessTokenFactory: () => {
             const token = authService.getToken();
-            return token || '';
+            console.log('🔑 SignalR requesting token, available:', !!token);
+            if (!token) {
+              console.error('❌ No authentication token available for SignalR');
+              throw new Error('No authentication token available');
+            }
+            return token;
           },
           withCredentials: false,
         })
@@ -227,8 +248,8 @@ class SignalRService {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
     }
-    // Clear event listeners to prevent memory leaks
-    this.eventListeners.clear();
+    // Don't clear event listeners on reset - they should persist across page reloads
+    // this.eventListeners.clear();
   }
 
   // Handle reconnection logic
@@ -526,6 +547,13 @@ class SignalRService {
       this.initialize().catch(console.error);
     }
   }
+
+  // Force reconnection (useful for debugging)
+  async forceReconnect(): Promise<void> {
+    console.log('🔄 Force reconnecting SignalR...');
+    this.reset();
+    await this.initialize();
+  }
 }
 
 // Create and export singleton instance
@@ -541,89 +569,129 @@ export const useSignalR = (workspaceId?: string) => {
   });
 
   useEffect(() => {
+    console.log('🔄 useSignalR hook initializing...', { workspaceId });
+    
     const updateState = () => {
-      setState(signalRService.getState());
+      const newState = signalRService.getState();
+      console.log('📊 State updated:', newState);
+      setState(newState);
     };
 
     // Handler for when connection is established
     const handleConnected = () => {
-      console.log('SignalR Connected event received, current state:', signalRService.getState());
+      console.log('✅ SignalR Connected event received, current state:', signalRService.getState());
       updateState();
       
       // Join workspace after connection is established - with additional safety check
       if (workspaceId && signalRService.isConnected()) {
-        console.log('Attempting to join workspace:', workspaceId);
+        console.log('🏠 Attempting to join workspace:', workspaceId);
         signalRService.joinWorkspace(workspaceId).catch((error) => {
-          console.error('Failed to join workspace on Connected event:', error);
+          console.error('❌ Failed to join workspace on Connected event:', error);
         });
       } else if (workspaceId) {
-        console.log('Workspace join skipped - SignalR not connected yet');
+        console.log('⏳ Workspace join skipped - SignalR not connected yet');
         // Retry after a short delay
         setTimeout(() => {
           if (signalRService.isConnected()) {
-            console.log('Retrying workspace join after delay:', workspaceId);
+            console.log('🔄 Retrying workspace join after delay:', workspaceId);
             signalRService.joinWorkspace(workspaceId).catch(console.error);
           }
-        }, 100);
+        }, 200);
       }
+    };
+
+    const handleDisconnected = (error?: string) => {
+      console.log('❌ SignalR Disconnected:', error);
+      updateState();
+    };
+
+    const handleReconnecting = (error?: string) => {
+      console.log('🔄 SignalR Reconnecting:', error);
+      updateState();
+    };
+
+    const handleReconnected = (connectionId?: string) => {
+      console.log('✅ SignalR Reconnected:', connectionId);
+      updateState();
+      // Rejoin workspace after reconnection
+      if (workspaceId) {
+        console.log('🏠 Rejoining workspace after reconnection:', workspaceId);
+        signalRService.joinWorkspace(workspaceId).catch(console.error);
+      }
+    };
+
+    const handleError = (error: string) => {
+      console.error('❌ SignalR Error:', error);
+      setState(prev => ({ ...prev, lastError: error }));
     };
 
     // Set up event listeners
     signalRService.on('Connected', handleConnected);
-    signalRService.on('Disconnected', updateState);
-    signalRService.on('Reconnecting', updateState);
-    signalRService.on('Reconnected', () => {
-      updateState();
-      // Rejoin workspace after reconnection
-      if (workspaceId) {
-        signalRService.joinWorkspace(workspaceId).catch(console.error);
-      }
-    });
-    signalRService.on('Error', (error: string) => {
-      setState(prev => ({ ...prev, lastError: error }));
-    });
+    signalRService.on('Disconnected', handleDisconnected);
+    signalRService.on('Reconnecting', handleReconnecting);
+    signalRService.on('Reconnected', handleReconnected);
+    signalRService.on('Error', handleError);
 
-    // Initialize connection
-    signalRService.initialize().catch(console.error);
+    // Force initialization on every hook mount (handles page reloads)
+    console.log('🚀 Forcing SignalR initialization...');
+    signalRService.initialize()
+      .then(() => {
+        console.log('✅ SignalR initialization completed');
+        updateState();
+      })
+      .catch((error) => {
+        console.error('❌ Failed to initialize SignalR:', error);
+        setState(prev => ({ 
+          ...prev, 
+          lastError: error.message || 'Connection failed',
+          isConnected: false,
+          isReconnecting: false
+        }));
+      });
 
     // Join workspace if already connected
     if (workspaceId && signalRService.isConnected()) {
+      console.log('🏠 Already connected, joining workspace immediately:', workspaceId);
       signalRService.joinWorkspace(workspaceId).catch(console.error);
     }
 
     // Set up periodic check for workspace joining (backup mechanism)
     let joinAttempts = 0;
-    const maxJoinAttempts = 10;
+    const maxJoinAttempts = 15;
     const joinInterval = setInterval(() => {
       if (workspaceId && signalRService.isConnected() && 
           signalRService.getCurrentWorkspace() !== workspaceId) {
-        console.log('Periodic check: attempting to join workspace', workspaceId);
+        console.log('🔄 Periodic check: attempting to join workspace', workspaceId);
         signalRService.joinWorkspace(workspaceId)
           .then(() => {
+            console.log('✅ Successfully joined workspace via periodic check');
             clearInterval(joinInterval);
           })
           .catch((error) => {
-            console.error('Periodic join attempt failed:', error);
+            console.error('❌ Periodic join attempt failed:', error);
             joinAttempts++;
             if (joinAttempts >= maxJoinAttempts) {
-              console.error('Max join attempts reached, stopping periodic checks');
+              console.error('❌ Max join attempts reached, stopping periodic checks');
               clearInterval(joinInterval);
             }
           });
       } else if (!workspaceId || signalRService.getCurrentWorkspace() === workspaceId) {
         clearInterval(joinInterval);
       }
-    }, 500);
+    }, 1000); // Increased interval to 1 second
 
     return () => {
+      console.log('🧹 Cleaning up useSignalR hook...');
+      
       // Clean up periodic join interval
       clearInterval(joinInterval);
       
       // Clean up event listeners
       signalRService.off('Connected', handleConnected);
-      signalRService.off('Disconnected', updateState);
-      signalRService.off('Reconnecting', updateState);
-      signalRService.off('Reconnected', updateState);
+      signalRService.off('Disconnected', handleDisconnected);
+      signalRService.off('Reconnecting', handleReconnecting);
+      signalRService.off('Reconnected', handleReconnected);
+      signalRService.off('Error', handleError);
       
       // Leave workspace on cleanup - now gracefully handles disconnected state
       if (workspaceId) {

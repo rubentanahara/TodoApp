@@ -58,8 +58,8 @@ interface MainCanvasProps {
   onSignOut: () => void
 }
 
-const MIN_ZOOM = 0.25
-const MAX_ZOOM = 3
+const MIN_ZOOM = 0.5  // 50% minimum zoom
+const MAX_ZOOM = 1.5  // 150% maximum zoom
 const ZOOM_STEP = 0.25
 const CANVAS_SIZE = { width: 5000, height: 5000 }
 
@@ -313,12 +313,32 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
           cursor: userDto.isOnline ? { x: 0, y: 0 } : undefined
         }))
 
+        // Ensure current user is always included in the users list
+        let finalUsers = convertedUsers
+        const currentUserExists = convertedUsers.some(user => user.email === currentUser)
+        
+        if (!currentUserExists) {
+          console.log('Adding current user to users list:', currentUser)
+          const currentUserNoteCount = convertedNotes.filter(note => note.author === currentUser).length
+          const currentUserEntry: User = {
+            id: `current-user-${Date.now()}`,
+            email: currentUser,
+            displayName: currentUser.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+            noteCount: currentUserNoteCount,
+            isOnline: true, // Assume online since we're loading the app
+            lastSeen: new Date(),
+            cursor: { x: 0, y: 0 }
+          }
+          finalUsers = [...convertedUsers, currentUserEntry]
+        }
+
         setNotes(convertedNotes)
-        setUsers(convertedUsers)
-        setActiveCollaborators(convertedUsers.filter(u => u.isOnline && u.email !== currentUser).map(u => u.email))
+        setUsers(finalUsers)
+        setActiveCollaborators(finalUsers.filter(u => u.isOnline && u.email !== currentUser).map(u => u.email))
         
         console.log('Loaded notes:', convertedNotes.length)
-        console.log('Loaded users:', convertedUsers.length)
+        console.log('Loaded users:', finalUsers.length)
+        console.log('Current user in list:', finalUsers.some(u => u.email === currentUser))
         
       } catch (err: any) {
         console.error('Error loading data:', err)
@@ -400,9 +420,23 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     }
 
     const handleNoteMoved = (noteDto: NoteDto) => {
+      console.log('📍 Received NoteMoved event:', {
+        noteId: noteDto.id,
+        authorEmail: noteDto.authorEmail,
+        newPosition: { x: noteDto.x, y: noteDto.y },
+        currentUser: currentUser
+      })
+      
       const isMyNote = noteDto.authorEmail === currentUser
       const previousNote = notes.find(n => n.id === noteDto.id)
       const wasUserInitiated = userInitiatedMoves.current.has(noteDto.id)
+      
+      console.log('📍 NoteMoved details:', {
+        isMyNote,
+        previousNote: previousNote ? { id: previousNote.id, x: previousNote.x, y: previousNote.y } : null,
+        wasUserInitiated,
+        userInitiatedMoves: Array.from(userInitiatedMoves.current)
+      })
       
       setNotes(prev => prev.map(note => 
         note.id === noteDto.id ? {
@@ -414,6 +448,8 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
           lastModified: new Date(noteDto.updatedAt)
         } : note
       ))
+
+      console.log('✅ Note position updated in local state')
 
       // Only show toast when someone ELSE moves YOUR note (not when you move your own note)
       if (isMyNote && previousNote && !wasUserInitiated) {
@@ -431,7 +467,12 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
 
     const handleUserJoined = (email: string) => {
       console.log('👤 User joined workspace:', email)
-      setActiveCollaborators(prev => prev.includes(email) ? prev : [...prev, email])
+      
+      // Don't add current user to active collaborators (they're not a collaborator to themselves)
+      if (email !== currentUser) {
+        setActiveCollaborators(prev => prev.includes(email) ? prev : [...prev, email])
+      }
+      
       setUsers(prev => {
         const existingUser = prev.find(user => user.email === email)
         if (existingUser) {
@@ -441,11 +482,12 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
           )
         } else {
           // Add new user to the list
+          const noteCount = notes.filter(note => note.author === email).length
           const newUser: User = {
             id: `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
             email: email,
             displayName: email.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-            noteCount: 0,
+            noteCount: noteCount,
             isOnline: true,
             lastSeen: new Date(),
             cursor: { x: 0, y: 0 }
@@ -454,7 +496,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
         }
       })
       
-      // Show toast notification for new user
+      // Show toast notification for new user (but not for current user)
       if (email !== currentUser) {
         toast({
           title: "User Joined",
@@ -677,9 +719,28 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
           cursor: userDto.isOnline ? { x: 0, y: 0 } : undefined
         }))
 
+        // Ensure current user is always included in the users list
+        let finalUsers = convertedUsers
+        const currentUserExists = convertedUsers.some(user => user.email === currentUser)
+        
+        if (!currentUserExists) {
+          console.log('Adding current user to users list after reconnection:', currentUser)
+          const currentUserNoteCount = convertedNotes.filter(note => note.author === currentUser).length
+          const currentUserEntry: User = {
+            id: `current-user-${Date.now()}`,
+            email: currentUser,
+            displayName: currentUser.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+            noteCount: currentUserNoteCount,
+            isOnline: true, // Assume online since we're reconnecting
+            lastSeen: new Date(),
+            cursor: { x: 0, y: 0 }
+          }
+          finalUsers = [...convertedUsers, currentUserEntry]
+        }
+
         setNotes(convertedNotes)
-        setUsers(convertedUsers)
-        setActiveCollaborators(convertedUsers.filter(u => u.isOnline && u.email !== currentUser).map(u => u.email))
+        setUsers(finalUsers)
+        setActiveCollaborators(finalUsers.filter(u => u.isOnline && u.email !== currentUser).map(u => u.email))
         
         toast({
           title: "Reconnected",
@@ -896,39 +957,87 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
   }
 
   const centerCanvas = () => {
-    if (notes.length === 0) return
+    console.log('🎯 Centering canvas on notes...')
+    if (notes.length === 0) {
+      console.log('❌ No notes to center on')
+      toast({
+        title: "No Notes Found",
+        description: "Create some notes first to center the view.",
+        duration: 2000,
+      })
+      return
+    }
     
+    console.log('📊 Calculating bounds for', notes.length, 'notes')
     const bounds = notes.reduce((acc, note) => ({
       minX: Math.min(acc.minX, note.x),
-      maxX: Math.max(acc.maxX, note.x + 256),
+      maxX: Math.max(acc.maxX, note.x + 256), // Note width
       minY: Math.min(acc.minY, note.y),
-      maxY: Math.max(acc.maxY, note.y + 128)
+      maxY: Math.max(acc.maxY, note.y + 128)  // Note height
     }), { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity })
 
     const centerX = (bounds.minX + bounds.maxX) / 2
     const centerY = (bounds.minY + bounds.maxY) / 2
     
+    console.log('📐 Notes bounds:', bounds)
+    console.log('📍 Center point:', { centerX, centerY })
+    
     const container = containerRef.current
     if (container) {
       const containerRect = container.getBoundingClientRect()
+      const newOffset = {
+        x: containerRect.width / 2 - centerX * canvas.scale,
+        y: containerRect.height / 2 - centerY * canvas.scale
+      }
+      
+      console.log('🚀 Setting new canvas offset:', newOffset)
       setCanvas(prev => ({
         ...prev,
-        offset: {
-          x: containerRect.width / 2 - centerX * prev.scale,
-          y: containerRect.height / 2 - centerY * prev.scale
-        }
+        offset: newOffset,
+        isPanning: false // Ensure smooth transition
       }))
+      
+      toast({
+        title: "Centered on Notes",
+        description: `Focused on ${notes.length} note${notes.length !== 1 ? 's' : ''}`,
+        duration: 2000,
+      })
+    } else {
+      console.error('❌ Container ref not available')
     }
   }
 
-  // Cross-platform keyboard shortcuts
+  // Add wheel event listener for zoom functionality
   useEffect(() => {
-    const preventZoom = (e: WheelEvent) => {
-      if (e.ctrlKey || e.metaKey) {
+    const containerElement = containerRef.current
+    if (!containerElement) return
+
+    const handleWheelEvent = (e: WheelEvent) => {
+      // Only prevent default and handle zoom if Ctrl/Cmd is pressed OR if it's a trackpad pinch
+      if (e.ctrlKey || e.metaKey || Math.abs(e.deltaY) > 50) {
         e.preventDefault()
+        e.stopPropagation()
+        
+        const delta = e.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP
+        const containerRect = containerElement.getBoundingClientRect()
+        
+        // Calculate zoom center relative to container
+        const centerX = e.clientX - containerRect.left
+        const centerY = e.clientY - containerRect.top
+        handleZoom(delta, centerX, centerY)
       }
     }
 
+    // Add non-passive wheel event listener
+    containerElement.addEventListener('wheel', handleWheelEvent, { passive: false })
+
+    return () => {
+      containerElement.removeEventListener('wheel', handleWheelEvent)
+    }
+  }, [handleZoom])
+
+  // Cross-platform keyboard shortcuts
+  useEffect(() => {
     const handleKeyboardShortcuts = (e: KeyboardEvent) => {
       // Don't trigger shortcuts when user is typing in inputs/textareas
       const activeElement = document.activeElement
@@ -1020,20 +1129,12 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
       }
     }
 
-    // Only prevent wheel zoom on desktop
-    if (!isMobile) {
-      document.addEventListener('wheel', preventZoom, { passive: false })
-    }
-    
     document.addEventListener('keydown', handleKeyboardShortcuts)
 
     return () => {
-      if (!isMobile) {
-        document.removeEventListener('wheel', preventZoom)
-      }
       document.removeEventListener('keydown', handleKeyboardShortcuts)
     }
-      }, [canvas.scale, isMobile])
+      }, [canvas.scale, isMobile, notes.length, canvas])
 
   // Add canvas pan event listeners with pinch zoom support
   useEffect(() => {
@@ -1227,21 +1328,83 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     }
   }
 
-
-
-  // Optimized note movement with backend integration
-  const moveNote = useCallback(async (id: string, x: number, y: number) => {
-    // Get the current note with latest version
-    const currentNote = notes.find(n => n.id === id)
-    if (!currentNote) return
-
-    // Track this as a user-initiated move to avoid showing notifications
-    userInitiatedMoves.current.add(id)
+  // Enhanced SignalR connection monitoring with debug logging
+  useEffect(() => {
+    console.log('🔍 SignalR Connection Monitor - Setting up...')
+    console.log('📊 Current state:', { isConnected, isReconnecting, signalRService: !!signalRService })
     
-    // Remove from tracking after a delay (to handle SignalR round-trip)
-    setTimeout(() => {
-      userInitiatedMoves.current.delete(id)
-    }, 2000) // 2 second window for SignalR round-trip
+    // Log connection state changes
+    const logConnectionState = () => {
+      const state = signalRService?.getState()
+      console.log('📡 SignalR State Update:', {
+        isConnected: state?.isConnected,
+        connectionId: state?.connectionId,
+        isReconnecting: state?.isReconnecting,
+        lastError: state?.lastError
+      })
+    }
+
+    // Set up enhanced event listeners with debug logging
+    const handleConnected = () => {
+      console.log('✅ SignalR Connected - Setting up workspace join...')
+      logConnectionState()
+    }
+
+    const handleDisconnected = (error?: string) => {
+      console.log('❌ SignalR Disconnected:', error)
+      logConnectionState()
+    }
+
+    const handleReconnecting = (error?: string) => {
+      console.log('🔄 SignalR Reconnecting:', error)
+      logConnectionState()
+    }
+
+    const handleReconnected = (connectionId?: string) => {
+      console.log('✅ SignalR Reconnected:', connectionId)
+      logConnectionState()
+    }
+
+    const handleError = (error: string) => {
+      console.error('❌ SignalR Error:', error)
+      logConnectionState()
+    }
+
+    if (signalRService) {
+      signalRService.on('Connected', handleConnected)
+      signalRService.on('Disconnected', handleDisconnected)
+      signalRService.on('Reconnecting', handleReconnecting)
+      signalRService.on('Reconnected', handleReconnected)
+      signalRService.on('Error', handleError)
+
+      // Log current state
+      logConnectionState()
+    }
+
+    return () => {
+      if (signalRService) {
+        signalRService.off('Connected', handleConnected)
+        signalRService.off('Disconnected', handleDisconnected)
+        signalRService.off('Reconnecting', handleReconnecting)
+        signalRService.off('Reconnected', handleReconnected)
+        signalRService.off('Error', handleError)
+      }
+    }
+  }, [signalRService, isConnected, isReconnecting])
+
+  // Enhanced move note with better error handling and logging
+  const moveNote = useCallback(async (id: string, x: number, y: number) => {
+    console.log('🚀 moveNote called:', { id, x, y, isConnected, signalRService: !!signalRService })
+    
+    const currentNote = notes.find(n => n.id === id)
+    if (!currentNote) {
+      console.error('❌ Note not found for move:', id)
+      return
+    }
+
+    // Mark as user-initiated move to prevent feedback loops
+    userInitiatedMoves.current.add(id)
+    setTimeout(() => userInitiatedMoves.current.delete(id), 1000)
 
     // Update local state immediately for responsive UI
     rafThrottledMoveNote(id, x, y)
@@ -1249,14 +1412,23 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     try {
       // Send update to backend via SignalR or API
       if (signalRService && isConnected) {
+        console.log('📡 Sending move via SignalR...')
         await signalRService.moveNote(id, x, y)
+        console.log('✅ Move sent via SignalR successfully')
       } else {
+        console.log('🔄 Sending move via API fallback (SignalR not available)')
+        console.log('SignalR state:', { 
+          service: !!signalRService, 
+          connected: isConnected,
+          state: signalRService?.getState()
+        })
         await apiService.moveNote(id, { x, y })
+        console.log('✅ Move sent via API successfully')
       }
 
       // No toast notifications for moving notes - notifications only when others move your notes
     } catch (error: any) {
-      console.error('Error moving note:', error)
+      console.error('❌ Error moving note:', error)
       
       // Check if it's a version conflict
       if (error.message?.includes('modified by another user')) {
@@ -1281,17 +1453,19 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     }
   }, [rafThrottledMoveNote, signalRService, isConnected, notes, toast, currentUser])
 
-  // Optimized note update with backend integration
+  // Enhanced note update with better error handling and logging
   const updateNote = useCallback(async (id: string, content: string) => {
-    console.log('updateNote called for note:', id, 'content:', content)
+    console.log('🚀 updateNote called for note:', id, 'content:', content)
+    console.log('📊 SignalR state:', { isConnected, service: !!signalRService })
+    
     // Get the current note with latest version
     const currentNote = notes.find(n => n.id === id)
     if (!currentNote) {
-      console.error('Current note not found for ID:', id)
+      console.error('❌ Current note not found for ID:', id)
       return
     }
 
-    console.log('Current note found:', currentNote)
+    console.log('✅ Current note found:', currentNote)
 
     // Update local state immediately for responsive UI
     setNotes(prev => prev.map(note => 
@@ -1306,21 +1480,25 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
         version: currentNote.version // Use current version for concurrency control
       }
 
-      console.log('Update data:', updateData)
-      console.log('SignalR connected:', isConnected, 'Service available:', !!signalRService)
+      console.log('📝 Update data:', updateData)
 
       // Send update to backend via SignalR or API
       if (signalRService && isConnected) {
-        console.log('Updating note via SignalR')
+        console.log('📡 Updating note via SignalR')
         await signalRService.updateNote(id, updateData)
-        console.log('Note updated via SignalR successfully')
+        console.log('✅ Note updated via SignalR successfully')
       } else {
-        console.log('Updating note via API fallback (SignalR not available)')
+        console.log('🔄 Updating note via API fallback (SignalR not available)')
+        console.log('SignalR state:', { 
+          service: !!signalRService, 
+          connected: isConnected,
+          state: signalRService?.getState()
+        })
         await apiService.updateNote(id, updateData)
-        console.log('Note updated via API successfully')
+        console.log('✅ Note updated via API successfully')
       }
     } catch (error: any) {
-      console.error('Error updating note:', error)
+      console.error('❌ Error updating note:', error)
       
       // Check if it's a version conflict
       if (error.message?.includes('modified by another user')) {
@@ -1441,16 +1619,27 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     }
   }, [toast, currentUser])
 
-  // Reaction handlers
+  // Enhanced reaction handlers with better logging
   const handleAddReaction = useCallback(async (noteId: string, reactionType: string) => {
+    console.log('🚀 handleAddReaction called:', { noteId, reactionType, isConnected, service: !!signalRService })
+    
     try {
       // Send reaction via SignalR if available
       if (signalRService && isConnected) {
+        console.log('📡 Adding reaction via SignalR')
         await signalRService.addReaction(config.workspace.defaultWorkspaceId, {
           noteId,
           reactionType
         })
+        console.log('✅ Reaction added via SignalR successfully')
       } else {
+        console.log('🔄 Adding reaction via API fallback (SignalR not available)')
+        console.log('SignalR state:', { 
+          service: !!signalRService, 
+          connected: isConnected,
+          state: signalRService?.getState()
+        })
+        
         // Fallback to direct API call
         const response = await fetch(`${config.api.baseUrl}/api/notes/${noteId}/reactions`, {
           method: 'POST',
@@ -1465,9 +1654,10 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
           const errorData = await response.json()
           throw new Error(errorData.error || 'Failed to add reaction')
         }
+        console.log('✅ Reaction added via API successfully')
       }
     } catch (error: any) {
-      console.error('Error adding reaction:', error)
+      console.error('❌ Error adding reaction:', error)
       toast({
         title: "Error",
         description: error.message || "Failed to add reaction. Please try again.",
@@ -1477,12 +1667,22 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
   }, [signalRService, isConnected, toast])
 
   const handleRemoveReaction = useCallback(async (noteId: string, reactionType: string) => {
-    console.log(`🗑️ Removing reaction ${reactionType} from note ${noteId}`)
+    console.log('🚀 handleRemoveReaction called:', { noteId, reactionType, isConnected, service: !!signalRService })
+    
     try {
       // Send reaction removal via SignalR if available
       if (signalRService && isConnected) {
+        console.log('📡 Removing reaction via SignalR')
         await signalRService.removeUserReaction(config.workspace.defaultWorkspaceId, noteId, reactionType)
+        console.log('✅ Reaction removed via SignalR successfully')
       } else {
+        console.log('🔄 Removing reaction via API fallback (SignalR not available)')
+        console.log('SignalR state:', { 
+          service: !!signalRService, 
+          connected: isConnected,
+          state: signalRService?.getState()
+        })
+        
         // Fallback to direct API call
         const response = await fetch(`${config.api.baseUrl}/api/notes/${noteId}/reactions?reactionType=${encodeURIComponent(reactionType)}`, {
           method: 'DELETE',
@@ -1495,9 +1695,10 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
           const errorData = await response.json()
           throw new Error(errorData.error || 'Failed to remove reaction')
         }
+        console.log('✅ Reaction removed via API successfully')
       }
     } catch (error: any) {
-      console.error('Error removing reaction:', error)
+      console.error('❌ Error removing reaction:', error)
       toast({
         title: "Error",
         description: error.message || "Failed to remove reaction. Please try again.",
@@ -1660,6 +1861,81 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
           </div>
         )}
 
+        {/* Debug Panel - Only in development */}
+        {process.env.NODE_ENV === 'development' && (
+          <div className="fixed top-4 left-4 z-50 bg-background/90 backdrop-blur border rounded-lg p-3 text-xs space-y-2 max-w-xs">
+            <div className="font-semibold">SignalR Debug</div>
+            <div className="space-y-1">
+              <div className="flex justify-between">
+                <span>Connected:</span>
+                <span className={isConnected ? 'text-green-600' : 'text-red-600'}>
+                  {isConnected ? 'Yes' : 'No'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span>Reconnecting:</span>
+                <span className={isReconnecting ? 'text-orange-600' : 'text-gray-600'}>
+                  {isReconnecting ? 'Yes' : 'No'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span>Service:</span>
+                <span className={signalRService ? 'text-green-600' : 'text-red-600'}>
+                  {signalRService ? 'Available' : 'None'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span>Connection ID:</span>
+                <span className="text-xs truncate max-w-20" title={signalRService?.getState()?.connectionId || 'None'}>
+                  {signalRService?.getState()?.connectionId?.substring(0, 8) || 'None'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span>Workspace:</span>
+                <span className="text-xs truncate max-w-20" title={signalRService?.getCurrentWorkspace() || 'None'}>
+                  {signalRService?.getCurrentWorkspace() || 'None'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span>Notes:</span>
+                <span>{notes.length}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Users:</span>
+                <span>{users.length}</span>
+              </div>
+            </div>
+            <div className="pt-2 border-t space-y-1">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => signalRService?.forceReconnect()}
+                className="w-full text-xs h-7"
+              >
+                Force Reconnect
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  const firstNote = notes[0]
+                  if (firstNote) {
+                    const newX = firstNote.x + 50
+                    const newY = firstNote.y + 50
+                    console.log('🧪 Testing note move:', { noteId: firstNote.id, newX, newY })
+                    moveNote(firstNote.id, newX, newY)
+                  } else {
+                    console.log('❌ No notes available for testing')
+                  }
+                }}
+                className="w-full text-xs h-7"
+              >
+                Test Move Note
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* Main Content */}
         <div className="flex-1 flex flex-col">
           {/* Enhanced Header with Connection Status - Hidden in focus mode */}
@@ -1752,7 +2028,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
           <div 
             ref={containerRef}
             className="flex-1 relative overflow-hidden"
-            onWheel={handleWheelZoom}
           >
             <div
               ref={canvasRef}
@@ -1856,9 +2131,23 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
                     <Button
                       variant="outline"
                       size="sm"
+                      onClick={createNote}
+                      className="h-10 w-10 rounded-full flex items-center justify-center"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Add Note {!isMobile && "(Space)"}</TooltipContent>
+                </Tooltip>
+                
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
                       onClick={zoomOut}
                       disabled={canvas.scale <= MIN_ZOOM}
-                      className="h-10 w-10 rounded-full"
+                      className="h-10 w-10 rounded-full flex items-center justify-center"
                     >
                       <ZoomOut className="w-4 h-4" />
                     </Button>
@@ -1873,7 +2162,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
                       size="sm"
                       onClick={zoomIn}
                       disabled={canvas.scale >= MAX_ZOOM}
-                      className="h-10 w-10 rounded-full"
+                      className="h-10 w-10 rounded-full flex items-center justify-center"
                     >
                       <ZoomIn className="w-4 h-4" />
                     </Button>
@@ -1883,18 +2172,18 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
                 
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button variant="outline" size="sm" onClick={resetCanvas} className="h-10 w-10 rounded-full">
-                      <RotateCcw className="w-4 h-4" />
-                    </Button>
+                                      <Button variant="outline" size="sm" onClick={resetCanvas} className="h-10 w-10 rounded-full flex items-center justify-center">
+                    <RotateCcw className="w-4 h-4" />
+                  </Button>
                   </TooltipTrigger>
                   <TooltipContent>Reset View {!isMobile && "(Ctrl/⌘ + 0)"}</TooltipContent>
                 </Tooltip>
                 
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button variant="outline" size="sm" onClick={centerCanvas} className="h-10 w-10 rounded-full">
-                      <Navigation className="w-4 h-4" />
-                    </Button>
+                                      <Button variant="outline" size="sm" onClick={centerCanvas} className="h-10 w-10 rounded-full flex items-center justify-center">
+                    <Navigation className="w-4 h-4" />
+                  </Button>
                   </TooltipTrigger>
                   <TooltipContent>Center on Notes {!isMobile && "(Ctrl/⌘ + H)"}</TooltipContent>
                 </Tooltip>
@@ -1905,7 +2194,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
                       variant="outline" 
                       size="sm" 
                       onClick={() => setIsFocusMode(!isFocusMode)}
-                      className="h-10 w-10 rounded-full"
+                      className="h-10 w-10 rounded-full flex items-center justify-center"
                     >
                       {isFocusMode ? (
                         <Minimize2 className="w-4 h-4" />
@@ -1925,7 +2214,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
                       variant="outline" 
                       size="sm" 
                       onClick={() => setShowKeyboardHelp(!showKeyboardHelp)}
-                      className="h-10 w-10 rounded-full"
+                      className="h-10 w-10 rounded-full flex items-center justify-center"
                     >
                       <HelpCircle className="w-4 h-4" />
                     </Button>
@@ -1934,24 +2223,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
                 </Tooltip>
               </div>
             </div>
-
-            {/* Add Note Button - Positioned for optimal access */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  onClick={createNote}
-                  className={`fixed ${
-                    isMobile 
-                      ? "bottom-20 right-4 h-14 w-14" 
-                      : "bottom-4 right-4 h-12 w-12"
-                  } rounded-full shadow-lg z-40 hover:scale-105 transition-transform touch-manipulation`}
-                  size="icon"
-                >
-                  <Plus className={`${isMobile ? "w-6 h-6" : "w-5 h-5"}`} />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Add Note {!isMobile && "(Space)"}</TooltipContent>
-            </Tooltip>
 
             {/* Focus Mode - UI elements are conditionally hidden */}
           </div>
@@ -1963,4 +2234,5 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     </TooltipProvider>
   )
 }
+
 

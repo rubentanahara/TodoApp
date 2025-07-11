@@ -235,6 +235,9 @@ public class CollaborationHub : Hub
             return;
         }
 
+        _logger.LogInformation("🚀 SignalR MoveNote called: NoteId={NoteId}, User={Email}, Position=({X}, {Y})", 
+            noteGuid, email, x, y);
+
         try
         {
             var result = await _noteService.MoveNoteAsync(noteGuid, x, y, email);
@@ -243,19 +246,24 @@ public class CollaborationHub : Hub
             {
                 // Send to all users in the workspace
                 var workspaceId = result.Data.WorkspaceId;
+                
+                _logger.LogInformation("📡 Broadcasting NoteMoved to workspace {WorkspaceId}: NoteId={NoteId}, Position=({X}, {Y})", 
+                    workspaceId, noteGuid, x, y);
+                
                 await Clients.Group(workspaceId).SendAsync("NoteMoved", result.Data);
                 
-                _logger.LogDebug("Note {NoteId} moved via SignalR by {Email} to ({X}, {Y})", 
+                _logger.LogInformation("✅ Note {NoteId} moved via SignalR by {Email} to ({X}, {Y}) - broadcast completed", 
                     noteGuid, email, x, y);
             }
             else
             {
+                _logger.LogWarning("❌ Note move failed: {Error}", result.Error);
                 await Clients.Caller.SendAsync("Error", result.Error);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error moving note via SignalR");
+            _logger.LogError(ex, "❌ Error moving note via SignalR");
             await Clients.Caller.SendAsync("Error", "Failed to move note");
         }
     }
