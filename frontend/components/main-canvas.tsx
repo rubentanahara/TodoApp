@@ -794,19 +794,36 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     setCanvas(prev => ({ ...prev, isPanning: false }))
   }, [])
 
-  // Canvas event handlers
+  // Canvas event handlers - FIXED VERSION
   const handleCanvasMouseDown = (e: React.MouseEvent) => {
-    if (e.target === e.currentTarget) {
+    // Allow dragging when clicking on canvas or its direct children (like the grid)
+    const target = e.target as HTMLElement
+    const canvasElement = canvasRef.current
+    
+    // Check if we're clicking on the canvas or its direct children (grid, empty areas)
+    if (target === canvasElement || 
+        target.closest('[data-canvas="true"]') === canvasElement ||
+        (target.classList.contains('absolute') && target.parentElement === canvasElement)) {
+      e.preventDefault()
+      e.stopPropagation()
+      console.log('Mouse down on canvas area') // Debug log
       handleCanvasStart(e.clientX, e.clientY)
     }
   }
 
   const handleCanvasTouchStart = (e: React.TouchEvent) => {
-    if (e.target === e.currentTarget) {
+    // Allow dragging when touching on canvas or its direct children
+    const target = e.target as HTMLElement
+    const canvasElement = canvasRef.current
+    
+    if (target === canvasElement || 
+        target.closest('[data-canvas="true"]') === canvasElement ||
+        (target.classList.contains('absolute') && target.parentElement === canvasElement)) {
       if (e.touches.length === 1) {
         // Single touch - pan canvas
         e.preventDefault()
         const touch = e.touches[0]
+        console.log('Touch start on canvas area') // Debug log
         handleCanvasStart(touch.clientX, touch.clientY)
       } else if (e.touches.length === 2) {
         // Two finger pinch - zoom
