@@ -8,6 +8,7 @@ using NotesApp.Data;
 using NotesApp.Services;
 using NotesApp.Hubs;
 using NotesApp.Models;
+using Microsoft.AspNetCore.Http.Features;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -25,8 +26,8 @@ builder.Services.AddDbContext<NotesDbContext>(options =>
 {
     var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
     
-    // Always use SQL Server as requested
-    options.UseSqlServer(connectionString);
+    // Use PostgreSQL for better performance and scalability
+    options.UseNpgsql(connectionString);
     
     if (builder.Environment.IsDevelopment())
     {
@@ -39,12 +40,14 @@ builder.Services.AddDbContext<NotesDbContext>(options =>
 builder.Services.AddScoped<IRepository<Note>, Repository<Note>>();
 builder.Services.AddScoped<IRepository<User>, Repository<User>>();
 builder.Services.AddScoped<IRepository<UserCursor>, Repository<UserCursor>>();
+builder.Services.AddScoped<IRepository<NoteReaction>, Repository<NoteReaction>>();
 
 // Add services
 builder.Services.AddScoped<INoteService, NoteService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserCursorService, UserCursorService>();
+builder.Services.AddScoped<INoteReactionService, NoteReactionService>();
 
 // Add memory cache
 builder.Services.AddMemoryCache();
@@ -156,6 +159,12 @@ builder.Services.AddAuthorization();
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<NotesDbContext>();
 
+// Configure file upload limits
+builder.Services.Configure<FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = 5 * 1024 * 1024; // 5MB
+});
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline
@@ -171,6 +180,9 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+// Add static file serving for uploads
+app.UseStaticFiles(); // This serves wwwroot by default
 
 // Add security headers
 app.Use(async (context, next) =>

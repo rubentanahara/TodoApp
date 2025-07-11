@@ -11,4 +11,5 @@ public interface INoteService
     Task<ApiResponse<NoteDto>> UpdateNoteAsync(Guid id, NoteUpdateDto noteUpdateDto, string authorEmail);
     Task<ApiResponse<bool>> DeleteNoteAsync(Guid id, string authorEmail);
     Task<ApiResponse<NoteDto>> MoveNoteAsync(Guid id, decimal x, decimal y, string authorEmail);
+    Task<ApiResponse<bool>> AddImageToNoteAsync(Guid noteId, string imageUrl);
 } 

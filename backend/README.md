@@ -1,6 +1,6 @@
 # Notes API - Real-Time Collaborative Notes Backend
 
-A scalable, containerized backend for a real-time collaborative notes application built with .NET 9, designed for Docker deployment with cloud migration readiness.
+A scalable, containerized backend for a real-time collaborative notes application built with .NET 9 and PostgreSQL, designed for Docker deployment with cloud migration readiness.
 
 ## 🚀 Features
 
@@ -89,7 +89,7 @@ A scalable, containerized backend for a real-time collaborative notes applicatio
 - **ASP.NET Core** - Web framework
 - **Entity Framework Core** - ORM
 - **SignalR** - Real-time communication
-- **SQL Server** - Database (all environments)
+- **PostgreSQL** - Database (all environments)
 - **JWT** - Authentication
 - **Serilog** - Structured logging
 - **Docker** - Containerization
@@ -110,16 +110,34 @@ git clone <repository-url>
 cd collaborative_notes/backend
 ```
 
-2. **Run with Docker Compose (Recommended)**
+2. **Using Docker Helper Script (Recommended)**
 ```bash
-# Development mode with hot reload
-docker-compose -f docker-compose.dev.yml up -d
+# Start development environment (with hot reload)
+./docker-helper.sh up dev
 
-# Production mode
-docker-compose -f docker-compose.prod.yml up -d
+# Check status
+./docker-helper.sh status dev
+
+# View logs
+./docker-helper.sh logs dev
+
+# Connect to database
+./docker-helper.sh db dev
+
+# Stop environment
+./docker-helper.sh down dev
 ```
 
-3. **Run locally**
+3. **Manual Docker Compose**
+```bash
+# Development mode with hot reload
+docker-compose --profile dev up -d
+
+# Production mode
+docker-compose --profile prod up -d
+```
+
+4. **Run locally (without Docker)**
 ```bash
 # Restore packages
 dotnet restore
@@ -131,7 +149,7 @@ dotnet run
 dotnet watch run
 ```
 
-4. **Access the API**
+5. **Access the API**
 - Swagger UI: http://localhost:5000
 - Health Check: http://localhost:5000/health
 - SignalR Hub: ws://localhost:5000/hubs/collaboration
@@ -143,7 +161,7 @@ dotnet watch run
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `ASPNETCORE_ENVIRONMENT` | Environment | Development |
-| `ConnectionStrings__DefaultConnection` | Database connection | SQLite for dev |
+| `ConnectionStrings__DefaultConnection` | Database connection | PostgreSQL |
 | `JWT__SecretKey` | JWT signing key | **Required** |
 | `JWT__Issuer` | JWT issuer | NotesApp |
 | `JWT__Audience` | JWT audience | NotesApp |
@@ -156,7 +174,7 @@ dotnet watch run
 ```json
 {
   "ConnectionStrings": {
-    "DefaultConnection": "Server=localhost,1433;Database=NotesAppDev;User Id=sa;Password=YourPassword123!;TrustServerCertificate=true;"
+    "DefaultConnection": "Host=localhost;Database=NotesAppDev;Username=postgres;Password=YourPassword123!;Port=5432;"
   }
 }
 ```
@@ -165,40 +183,77 @@ dotnet watch run
 ```json
 {
   "ConnectionStrings": {
-    "DefaultConnection": "Server=sqlserver;Database=NotesApp;User Id=sa;Password=YourPassword123!;TrustServerCertificate=true;"
+    "DefaultConnection": "Host=postgres;Database=NotesApp;Username=postgres;Password=YourPassword123!;Port=5432;"
   }
 }
 ```
 
 ## 🐳 Docker Deployment
 
-### Development
+### Using Docker Helper Script (Recommended)
+
+The `docker-helper.sh` script provides a convenient way to manage both development and production environments:
+
 ```bash
-# Start development environment
-docker-compose -f docker-compose.dev.yml up -d
+# Development Environment
+./docker-helper.sh up dev          # Start with hot reload
+./docker-helper.sh logs dev        # View logs
+./docker-helper.sh status dev      # Check health
+./docker-helper.sh db dev          # Connect to database
+./docker-helper.sh shell dev       # Open container shell
+./docker-helper.sh down dev        # Stop environment
+./docker-helper.sh clean dev       # Clean up completely
 
-# View logs
-docker-compose -f docker-compose.dev.yml logs -f
-
-# Stop
-docker-compose -f docker-compose.dev.yml down
+# Production Environment
+./docker-helper.sh up prod         # Start production
+./docker-helper.sh logs prod       # View logs
+./docker-helper.sh status prod     # Check health
+./docker-helper.sh db prod         # Connect to database
+./docker-helper.sh down prod       # Stop environment
 ```
 
-### Production
+### Manual Docker Compose
+
+#### Development
+```bash
+# Start development environment (hot reload enabled)
+docker-compose --profile dev up -d
+
+# View logs
+docker-compose --profile dev logs -f
+
+# Stop
+docker-compose --profile dev down
+```
+
+#### Production
 ```bash
 # Set environment variables
 export JWT_SECRET="your-super-secret-jwt-key"
-export SQL_PASSWORD="YourSecurePassword123!"
 
 # Start production environment
-docker-compose -f docker-compose.prod.yml up -d
+docker-compose --profile prod up -d
 
 # Health check
-curl -f http://localhost:5000/health
+curl -f http://localhost:8080/health
 
 # Monitor logs
-docker-compose -f docker-compose.prod.yml logs -f notes-api
+docker-compose --profile prod logs -f notes-api-prod
+
+# Stop
+docker-compose --profile prod down
 ```
+
+### Environment Differences
+
+| Feature | Development | Production |
+|---------|-------------|------------|
+| **Hot Reload** | ✅ Enabled | ❌ Disabled |
+| **Source Mount** | ✅ Live code | ❌ Built image |
+| **Database** | postgres-dev:5432 | postgres-prod:5433 |
+| **Resource Limits** | ❌ None | ✅ CPU/Memory limits |
+| **Image Uploads** | Persistent volume | Persistent volume |
+| **Logs** | Console + File | File only |
 
 ## 🔧 Database Migrations
 
@@ -273,13 +328,13 @@ dotnet test --filter Category=Integration
 
 ### Azure
 - App Service compatible
-- Azure SQL Database ready
+- Azure Database for PostgreSQL ready
 - Application Insights integration points
 - Key Vault configuration hooks
 
 ### AWS
 - ECS/Fargate compatible
-- RDS compatibility
+- RDS PostgreSQL compatibility
 - CloudWatch logging ready
 - Parameter Store integration
 
@@ -290,7 +345,7 @@ dotnet test --filter Category=Integration
 1. **Database Connection Failed**
 ```bash
 # Check database service
-docker-compose ps sqlserver
+docker-compose ps postgres
 
 # Check connection string
 docker-compose exec notes-api env | grep ConnectionStrings
@@ -317,7 +372,7 @@ docker-compose logs -f notes-api
 curl http://localhost:5000/health
 
 # Database logs
-docker-compose logs -f sqlserver
+docker-compose logs -f postgres
 ```
 
 ## 🤝 Contributing

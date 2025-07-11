@@ -11,4 +11,10 @@ public class NoteDto
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public int Version { get; set; }
+    
+    // Add image support
+    public List<string> ImageUrls { get; set; } = new();
+    
+    // Add reaction support
+    public List<NoteReactionSummaryDto> Reactions { get; set; } = new();
 } 

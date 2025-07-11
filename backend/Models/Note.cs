@@ -30,4 +30,11 @@ public class Note
     
     [ConcurrencyCheck]
     public int Version { get; set; } = 1;
+    
+    // Add image support - JSON array of image URLs
+    [MaxLength(2000)]
+    public string? ImageUrls { get; set; }
+    
+    // Navigation property for reactions
+    public virtual ICollection<NoteReaction> Reactions { get; set; } = new List<NoteReaction>();
 } 

@@ -5,12 +5,14 @@ using NotesApp.Data;
 using NotesApp.DTOs;
 using NotesApp.Models;
 using System.Collections.Concurrent;
+using System.Text.Json;
 
 namespace NotesApp.Services;
 
 public class NoteService : INoteService
 {
     private readonly IRepository<Note> _noteRepository;
+    private readonly NotesDbContext _dbContext; // Add DbContext for Include operations
     private readonly IMemoryCache _cache;
     private readonly ILogger<NoteService> _logger;
     private readonly HtmlSanitizer _htmlSanitizer;
@@ -20,9 +22,10 @@ public class NoteService : INoteService
     private readonly ConcurrentDictionary<string, DateTime> _lastMoveTime = new();
     private readonly TimeSpan _moveThrottleInterval = TimeSpan.FromMilliseconds(100); // Max 10 moves per second
 
-    public NoteService(IRepository<Note> noteRepository, IMemoryCache cache, ILogger<NoteService> logger)
+    public NoteService(IRepository<Note> noteRepository, NotesDbContext dbContext, IMemoryCache cache, ILogger<NoteService> logger)
     {
         _noteRepository = noteRepository;
+        _dbContext = dbContext;
         _cache = cache;
         _logger = logger;
         _htmlSanitizer = new HtmlSanitizer();
@@ -108,7 +111,10 @@ public class NoteService : INoteService
                 return new ApiResponse<NoteDto> { Data = cachedNote, Success = true };
             }
 
-            var note = await _noteRepository.GetByIdAsync(id);
+            // Use DbContext to include reactions
+            var note = await _dbContext.Notes
+                .Include(n => n.Reactions)
+                .FirstOrDefaultAsync(n => n.Id == id);
             
             if (note == null)
             {
@@ -147,7 +153,7 @@ public class NoteService : INoteService
                 return new ApiResponse<IEnumerable<NoteDto>> { Data = cachedNotes, Success = true };
             }
 
-            IEnumerable<Note> notes;
+            IQueryable<Note> query = _dbContext.Notes.Include(n => n.Reactions);
 
             if (viewportX.HasValue && viewportY.HasValue && viewportWidth.HasValue && viewportHeight.HasValue)
             {
@@ -157,7 +163,7 @@ public class NoteService : INoteService
                 var minY = viewportY.Value;
                 var maxY = viewportY.Value + viewportHeight.Value;
 
-                notes = await _noteRepository.FindAsync(n => 
+                query = query.Where(n => 
                     n.WorkspaceId == workspaceId &&
                     n.X >= minX && n.X <= maxX &&
                     n.Y >= minY && n.Y <= maxY);
@@ -165,9 +171,10 @@ public class NoteService : INoteService
             else
             {
                 // Get all notes for workspace (with reasonable limit)
-                notes = await _noteRepository.FindAsync(n => n.WorkspaceId == workspaceId);
+                query = query.Where(n => n.WorkspaceId == workspaceId);
             }
 
+            var notes = await query.ToListAsync();
             var noteDtos = notes.Select(MapToDto).OrderBy(n => n.CreatedAt);
             
             _cache.Set(cacheKey, noteDtos, _notesCacheExpiry);
@@ -357,7 +364,10 @@ public class NoteService : INoteService
             {
                 try
                 {
-                    var note = await _noteRepository.GetByIdAsync(id);
+                    // Use DbContext to include reactions
+                    var note = await _dbContext.Notes
+                        .Include(n => n.Reactions)
+                        .FirstOrDefaultAsync(n => n.Id == id);
                     
                     if (note == null)
                     {
@@ -435,8 +445,94 @@ public class NoteService : INoteService
         }
     }
 
+    public async Task<ApiResponse<bool>> AddImageToNoteAsync(Guid noteId, string imageUrl)
+    {
+        try
+        {
+            var note = await _noteRepository.GetByIdAsync(noteId);
+            if (note == null)
+            {
+                return new ApiResponse<bool>
+                {
+                    Success = false,
+                    Error = "Note not found"
+                };
+            }
+
+            // Parse existing image URLs
+            var imageUrls = new List<string>();
+            if (!string.IsNullOrEmpty(note.ImageUrls))
+            {
+                try
+                {
+                    imageUrls = JsonSerializer.Deserialize<List<string>>(note.ImageUrls) ?? new();
+                }
+                catch
+                {
+                    imageUrls = new List<string>();
+                }
+            }
+
+            // Add new image URL
+            imageUrls.Add(imageUrl);
+
+            // Update note
+            note.ImageUrls = JsonSerializer.Serialize(imageUrls);
+            note.UpdatedAt = DateTime.UtcNow;
+            note.Version++;
+
+            await _noteRepository.UpdateAsync(note);
+            await _noteRepository.SaveChangesAsync();
+
+            // Invalidate cache
+            InvalidateNoteCache(noteId);
+            InvalidateWorkspaceCache(note.WorkspaceId);
+
+            _logger.LogInformation("Added image to note {NoteId}: {ImageUrl}", noteId, imageUrl);
+            return new ApiResponse<bool>
+            {
+                Success = true,
+                Data = true
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error adding image to note {NoteId}", noteId);
+            return new ApiResponse<bool>
+            {
+                Success = false,
+                Error = "Failed to add image to note"
+            };
+        }
+    }
+
     private static NoteDto MapToDto(Note note)
     {
+        var imageUrls = new List<string>();
+        if (!string.IsNullOrEmpty(note.ImageUrls))
+        {
+            try
+            {
+                imageUrls = JsonSerializer.Deserialize<List<string>>(note.ImageUrls) ?? new();
+            }
+            catch
+            {
+                // If JSON parsing fails, ignore
+            }
+        }
+
+        // Convert reactions to summary DTOs
+        var reactions = note.Reactions?
+            .GroupBy(r => r.ReactionType)
+            .Select(g => new NoteReactionSummaryDto
+            {
+                ReactionType = g.Key,
+                Count = g.Count(),
+                Users = g.Select(r => r.UserEmail).ToList(),
+                HasCurrentUser = false // Will be set by the controller based on current user
+            })
+            .ToList() ?? new List<NoteReactionSummaryDto>();
+
         return new NoteDto
         {
             Id = note.Id,
@@ -447,7 +543,9 @@ public class NoteService : INoteService
             WorkspaceId = note.WorkspaceId,
             CreatedAt = note.CreatedAt,
             UpdatedAt = note.UpdatedAt,
-            Version = note.Version
+            Version = note.Version,
+            ImageUrls = imageUrls,
+            Reactions = reactions
         };
     }
 

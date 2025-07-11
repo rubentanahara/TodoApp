@@ -13,13 +13,15 @@ public class CollaborationHub : Hub
     private readonly INoteService _noteService;
     private readonly IUserService _userService;
     private readonly IUserCursorService _userCursorService;
+    private readonly INoteReactionService _reactionService;
 
-    public CollaborationHub(ILogger<CollaborationHub> logger, INoteService noteService, IUserService userService, IUserCursorService userCursorService)
+    public CollaborationHub(ILogger<CollaborationHub> logger, INoteService noteService, IUserService userService, IUserCursorService userCursorService, INoteReactionService reactionService)
     {
         _logger = logger;
         _noteService = noteService;
         _userService = userService;
         _userCursorService = userCursorService;
+        _reactionService = reactionService;
     }
 
     public async Task JoinWorkspace(string workspaceId)
@@ -36,6 +38,9 @@ public class CollaborationHub : Hub
         
         try
         {
+            // Update user presence to online when joining workspace
+            await _userService.UpdatePresenceAsync(email, true);
+            
             // Send existing cursor positions to the newly joined user
             var cursorsResult = await _userCursorService.GetWorkspaceCursorsAsync(workspaceId);
             if (cursorsResult.Success && cursorsResult.Data != null)
@@ -55,8 +60,8 @@ public class CollaborationHub : Hub
                 email, workspaceId);
         }
 
-        // Notify other users that this user joined
-        await Clients.Group(workspaceId).SendAsync("UserJoined", email);
+        // Notify other users that this user joined (excluding the user who just joined)
+        await Clients.GroupExcept(workspaceId, Context.ConnectionId).SendAsync("UserJoined", email);
         
         _logger.LogInformation("User {Email} joined workspace {WorkspaceId}", email, workspaceId);
     }
@@ -76,6 +81,9 @@ public class CollaborationHub : Hub
         {
             // Remove cursor position when user leaves workspace
             await _userCursorService.RemoveCursorAsync(email, workspaceId);
+            
+            // Update user presence to offline when leaving workspace
+            await _userService.UpdatePresenceAsync(email, false);
         }
         catch (Exception ex)
         {
@@ -328,6 +336,9 @@ public class CollaborationHub : Hub
                 // Note: In a real implementation, you might want to track which workspace the user was in
                 // For now, we'll remove from the default workspace
                 await _userCursorService.RemoveCursorAsync(email, "demo-workspace");
+                
+                // Notify other users that this user left (broadcast to all workspaces)
+                await Clients.All.SendAsync("UserLeft", email);
             }
             catch (Exception ex)
             {
@@ -337,5 +348,138 @@ public class CollaborationHub : Hub
 
         _logger.LogInformation("User {Email} disconnected from SignalR", email ?? "Unknown");
         await base.OnDisconnectedAsync(exception);
+    }
+
+    public async Task AddReaction(string workspaceId, NoteReactionCreateDto reactionData)
+    {
+        var email = Context.User?.FindFirst(ClaimTypes.Email)?.Value;
+        
+        if (string.IsNullOrEmpty(email))
+        {
+            await Clients.Caller.SendAsync("Error", "User not authenticated");
+            return;
+        }
+
+        try
+        {
+            var result = await _reactionService.AddReactionAsync(workspaceId, reactionData, email);
+            
+            if (result.Success)
+            {
+                // Send to all users in the workspace
+                await Clients.Group(workspaceId).SendAsync("ReactionAdded", result.Data);
+                
+                _logger.LogInformation("Reaction added via SignalR by {Email} to note {NoteId}", 
+                    email, reactionData.NoteId);
+            }
+            else
+            {
+                await Clients.Caller.SendAsync("Error", result.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error adding reaction via SignalR");
+            await Clients.Caller.SendAsync("Error", "Failed to add reaction");
+        }
+    }
+
+    public async Task RemoveReaction(string workspaceId, Guid reactionId)
+    {
+        var email = Context.User?.FindFirst(ClaimTypes.Email)?.Value;
+        
+        if (string.IsNullOrEmpty(email))
+        {
+            await Clients.Caller.SendAsync("Error", "User not authenticated");
+            return;
+        }
+
+        try
+        {
+            var result = await _reactionService.RemoveReactionAsync(reactionId, email);
+            
+            if (result.Success)
+            {
+                // Send to all users in the workspace
+                await Clients.Group(workspaceId).SendAsync("ReactionRemoved", reactionId);
+                
+                _logger.LogInformation("Reaction removed via SignalR by {Email}", email);
+            }
+            else
+            {
+                await Clients.Caller.SendAsync("Error", result.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error removing reaction via SignalR");
+            await Clients.Caller.SendAsync("Error", "Failed to remove reaction");
+        }
+    }
+
+    public async Task RemoveUserReaction(string workspaceId, Guid noteId, string reactionType)
+    {
+        var email = Context.User?.FindFirst(ClaimTypes.Email)?.Value;
+        
+        if (string.IsNullOrEmpty(email))
+        {
+            await Clients.Caller.SendAsync("Error", "User not authenticated");
+            return;
+        }
+
+        try
+        {
+            var result = await _reactionService.RemoveUserReactionFromNoteAsync(noteId, email, reactionType);
+            
+            if (result.Success)
+            {
+                // Send to all users in the workspace
+                await Clients.Group(workspaceId).SendAsync("UserReactionRemoved", noteId, email, reactionType);
+                
+                _logger.LogInformation("User reaction {ReactionType} removed via SignalR by {Email} from note {NoteId}", 
+                    reactionType, email, noteId);
+            }
+            else
+            {
+                await Clients.Caller.SendAsync("Error", result.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error removing user reaction via SignalR");
+            await Clients.Caller.SendAsync("Error", "Failed to remove user reaction");
+        }
+    }
+
+    public async Task SignOut(string workspaceId)
+    {
+        var email = Context.User?.FindFirst(ClaimTypes.Email)?.Value;
+        
+        if (string.IsNullOrEmpty(email))
+        {
+            return;
+        }
+
+        try
+        {
+            // Update user presence to offline
+            await _userService.UpdatePresenceAsync(email, false);
+            
+            // Remove cursor position when user signs out
+            await _userCursorService.RemoveCursorAsync(email, workspaceId);
+            
+            // Remove from group
+            await Groups.RemoveFromGroupAsync(Context.ConnectionId, workspaceId);
+            
+            // Notify other users that this user signed out (should remove completely)
+            await Clients.Group(workspaceId).SendAsync("UserSignedOut", email);
+            
+            _logger.LogInformation("User {Email} signed out from workspace {WorkspaceId}", email, workspaceId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error during sign out for user {Email} from workspace {WorkspaceId}", 
+                email, workspaceId);
+        }
     }
 } 

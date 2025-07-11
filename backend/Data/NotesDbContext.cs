@@ -12,6 +12,7 @@ public class NotesDbContext : DbContext
     public DbSet<Note> Notes { get; set; }
     public DbSet<User> Users { get; set; }
     public DbSet<UserCursor> UserCursors { get; set; }
+    public DbSet<NoteReaction> NoteReactions { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -30,6 +31,9 @@ public class NotesDbContext : DbContext
             entity.Property(e => e.CreatedAt).IsRequired();
             entity.Property(e => e.UpdatedAt).IsRequired();
             entity.Property(e => e.Version).IsRequired().IsConcurrencyToken();
+            
+            // Add image support configuration
+            entity.Property(e => e.ImageUrls).HasMaxLength(2000);
             
             // Indexes for performance
             entity.HasIndex(e => e.WorkspaceId);
@@ -70,6 +74,34 @@ public class NotesDbContext : DbContext
             entity.HasIndex(e => new { e.UserEmail, e.WorkspaceId }).IsUnique();
         });
 
+        // Configure NoteReaction entity
+        modelBuilder.Entity<NoteReaction>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+            entity.Property(e => e.NoteId).IsRequired();
+            entity.Property(e => e.UserEmail).IsRequired().HasMaxLength(256);
+            entity.Property(e => e.ReactionType).IsRequired().HasMaxLength(10);
+            entity.Property(e => e.WorkspaceId).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.CreatedAt).IsRequired();
+            entity.Property(e => e.UpdatedAt).IsRequired();
+            
+            // Configure relationship with navigation property
+            entity.HasOne(e => e.Note)
+                  .WithMany(n => n.Reactions)
+                  .HasForeignKey(e => e.NoteId)
+                  .OnDelete(DeleteBehavior.Cascade);
+            
+            // Indexes for performance
+            entity.HasIndex(e => e.NoteId);
+            entity.HasIndex(e => e.UserEmail);
+            entity.HasIndex(e => e.WorkspaceId);
+            entity.HasIndex(e => e.ReactionType);
+            
+            // Unique constraint: one reaction per user per note
+            entity.HasIndex(e => new { e.NoteId, e.UserEmail }).IsUnique();
+        });
+
         // Note: Removed ValueGeneratedOnAdd for UserCursor since we manually set the Id
     }
 
@@ -87,10 +119,10 @@ public class NotesDbContext : DbContext
 
     private void UpdateTimestamps()
     {
-        var entries = ChangeTracker.Entries()
+        var noteEntries = ChangeTracker.Entries()
             .Where(e => e.Entity is Note && (e.State == EntityState.Added || e.State == EntityState.Modified));
 
-        foreach (var entry in entries)
+        foreach (var entry in noteEntries)
         {
             var note = (Note)entry.Entity;
             if (entry.State == EntityState.Added)
@@ -98,6 +130,19 @@ public class NotesDbContext : DbContext
                 note.CreatedAt = DateTime.UtcNow;
             }
             note.UpdatedAt = DateTime.UtcNow;
+        }
+        
+        var reactionEntries = ChangeTracker.Entries()
+            .Where(e => e.Entity is NoteReaction && (e.State == EntityState.Added || e.State == EntityState.Modified));
+
+        foreach (var entry in reactionEntries)
+        {
+            var reaction = (NoteReaction)entry.Entity;
+            if (entry.State == EntityState.Added)
+            {
+                reaction.CreatedAt = DateTime.UtcNow;
+            }
+            reaction.UpdatedAt = DateTime.UtcNow;
         }
     }
 } 

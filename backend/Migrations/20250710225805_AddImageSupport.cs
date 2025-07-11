@@ -5,15 +5,16 @@
 namespace NotesApp.Migrations
 {
     /// <inheritdoc />
-    public partial class AddImagesToNotes : Migration
+    public partial class AddImageSupport : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.AddColumn<string>(
-                name: "Images",
+                name: "ImageUrls",
                 table: "Notes",
-                type: "nvarchar(max)",
+                type: "character varying(2000)",
+                maxLength: 2000,
                 nullable: true);
         }
 
@@ -21,7 +22,7 @@ namespace NotesApp.Migrations
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropColumn(
-                name: "Images",
+                name: "ImageUrls",
                 table: "Notes");
         }
     }

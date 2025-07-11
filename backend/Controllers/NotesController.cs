@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using NotesApp.DTOs;
 using NotesApp.Services;
+using NotesApp.Hubs;
 using System.Security.Claims;
 
 namespace NotesApp.Controllers;
@@ -14,11 +16,13 @@ public class NotesController : ControllerBase
 {
     private readonly INoteService _noteService;
     private readonly ILogger<NotesController> _logger;
+    private readonly IHubContext<CollaborationHub> _hubContext;
 
-    public NotesController(INoteService noteService, ILogger<NotesController> logger)
+    public NotesController(INoteService noteService, ILogger<NotesController> logger, IHubContext<CollaborationHub> hubContext)
     {
         _noteService = noteService;
         _logger = logger;
+        _hubContext = hubContext;
     }
 
     /// <summary>
@@ -316,6 +320,146 @@ public class NotesController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error moving note {NoteId}", id);
+            return StatusCode(500, new ApiResponse<object>
+            {
+                Success = false,
+                Error = "An internal server error occurred"
+            });
+        }
+    }
+
+    /// <summary>
+    /// Upload an image to a note
+    /// </summary>
+    /// <param name="noteId">Note ID</param>
+    /// <param name="file">Image file to upload</param>
+    /// <returns>Success confirmation with image URL</returns>
+    [HttpPost("/api/notes/{noteId}/images")]
+    [ProducesResponseType(typeof(ApiResponse<string>), 201)]
+    [ProducesResponseType(typeof(ApiResponse<object>), 400)]
+    [ProducesResponseType(typeof(ApiResponse<object>), 401)]
+    public async Task<IActionResult> UploadImage(
+        [FromRoute] Guid noteId,
+        [FromForm] IFormFile file)
+    {
+        try
+        {
+            var userEmail = User.FindFirst(ClaimTypes.Email)?.Value;
+            if (string.IsNullOrEmpty(userEmail))
+            {
+                return Unauthorized(new ApiResponse<object>
+                {
+                    Success = false,
+                    Error = "User not authenticated"
+                });
+            }
+
+            // Get the note
+            var note = await _noteService.GetNoteAsync(noteId);
+            if (!note.Success)
+            {
+                return NotFound(new ApiResponse<object>
+                {
+                    Success = false,
+                    Error = "Note not found"
+                });
+            }
+
+            if (note.Data.AuthorEmail != userEmail)
+            {
+                return Unauthorized(new ApiResponse<object>
+                {
+                    Success = false,
+                    Error = "Only the note author can upload images"
+                });
+            }
+
+            // Validate file
+            if (file == null || file.Length == 0)
+            {
+                return BadRequest(new ApiResponse<object>
+                {
+                    Success = false,
+                    Error = "No file provided"
+                });
+            }
+
+            if (file.Length > 5 * 1024 * 1024) // 5MB limit
+            {
+                return BadRequest(new ApiResponse<object>
+                {
+                    Success = false,
+                    Error = "File too large (max 5MB)"
+                });
+            }
+
+            var allowedTypes = new[] { "image/jpeg", "image/png", "image/gif", "image/webp" };
+            if (!allowedTypes.Contains(file.ContentType))
+            {
+                return BadRequest(new ApiResponse<object>
+                {
+                    Success = false,
+                    Error = "Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed."
+                });
+            }
+
+            // Create uploads directory if it doesn't exist
+            var uploadsDir = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads");
+            Directory.CreateDirectory(uploadsDir);
+
+            // Save file with unique name
+            var fileName = $"{Guid.NewGuid()}{Path.GetExtension(file.FileName)}";
+            var filePath = Path.Combine(uploadsDir, fileName);
+
+            using (var stream = new FileStream(filePath, FileMode.Create))
+            {
+                await file.CopyToAsync(stream);
+            }
+
+            // Create absolute URL for the image
+            var request = HttpContext.Request;
+            var baseUrl = $"{request.Scheme}://{request.Host}";
+            var imageUrl = $"{baseUrl}/uploads/{fileName}";
+            
+            // Update note with image URL
+            var result = await _noteService.AddImageToNoteAsync(noteId, imageUrl);
+            
+            if (!result.Success)
+            {
+                // Clean up uploaded file if database update fails
+                if (System.IO.File.Exists(filePath))
+                {
+                    System.IO.File.Delete(filePath);
+                }
+                return BadRequest(result);
+            }
+
+            // Broadcast the updated note to all users in the workspace
+            try
+            {
+                var updatedNote = await _noteService.GetNoteAsync(noteId);
+                if (updatedNote.Success)
+                {
+                    await _hubContext.Clients.Group(updatedNote.Data.WorkspaceId).SendAsync("NoteUpdated", updatedNote.Data);
+                    _logger.LogInformation("Broadcasted image upload for note {NoteId} to workspace {WorkspaceId}", 
+                        noteId, updatedNote.Data.WorkspaceId);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to broadcast image upload for note {NoteId}", noteId);
+                // Don't fail the request if broadcast fails
+            }
+
+            return Ok(new ApiResponse<string>
+            {
+                Success = true,
+                Data = imageUrl
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error uploading image for note {NoteId}", noteId);
             return StatusCode(500, new ApiResponse<object>
             {
                 Success = false,
