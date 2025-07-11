@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { UserSidebar } from "@/components/user-sidebar"
 import { NoteCard } from "@/components/note-card"
+import { FloatingReaction } from "@/components/floating-reaction"
 import { Plus, LogOut, Menu, ZoomIn, ZoomOut, RotateCcw, Navigation, Maximize2, Minimize2, HelpCircle, Wifi, WifiOff, AlertCircle } from "lucide-react"
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet"
 import { Badge } from "@/components/ui/badge"
@@ -38,7 +39,7 @@ import { useAuth } from "@/lib/auth"
 import { apiService } from "@/lib/api"
 import { useSignalR } from "@/lib/signalr"
 import { config } from "@/lib/config"
-import { Note, User, NoteDto, UserDto, NoteCreateDto, NoteUpdateDto } from "@/types/api"
+import { Note, User, NoteDto, UserDto, NoteCreateDto, NoteUpdateDto, NoteReactionDto } from "@/types/api"
 
 // Using types from backend integration
 // Note and User types are imported from @/types/api
@@ -92,6 +93,15 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
   // Real-time collaboration state
   const [activeCollaborators, setActiveCollaborators] = useState<string[]>([])
   const [cursors, setCursors] = useState<Map<string, { x: number; y: number }>>(new Map())
+  
+  // Floating reactions state
+  const [floatingReactions, setFloatingReactions] = useState<Array<{
+    id: string
+    reaction: string
+    x: number
+    y: number
+    userEmail: string
+  }>>([])
   
   // Track user-initiated moves to avoid showing notifications for own actions
   const userInitiatedMoves = useRef<Set<string>>(new Set())
@@ -285,7 +295,12 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
           workspaceId: noteDto.workspaceId,
           version: noteDto.version,
           lastModified: new Date(noteDto.updatedAt),
-          collaborators: [noteDto.authorEmail]
+          collaborators: [noteDto.authorEmail],
+          imageUrls: noteDto.imageUrls || [],
+          reactions: (noteDto.reactions || []).map(reaction => ({
+            ...reaction,
+            hasCurrentUser: reaction.users.includes(currentUser)
+          }))
         }))
 
         const convertedUsers: User[] = usersData.map(userDto => ({
@@ -345,7 +360,12 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
         workspaceId: noteDto.workspaceId,
         version: noteDto.version,
         lastModified: new Date(noteDto.updatedAt),
-        collaborators: [noteDto.authorEmail]
+        collaborators: [noteDto.authorEmail],
+        imageUrls: noteDto.imageUrls || [],
+        reactions: (noteDto.reactions || []).map(reaction => ({
+          ...reaction,
+          hasCurrentUser: reaction.users.includes(currentUser)
+        }))
       }
       
       console.log('📝 Adding note to local state:', newNote)
@@ -361,13 +381,20 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     }
 
     const handleNoteUpdated = (noteDto: NoteDto) => {
+      console.log('📝 Received NoteUpdated event:', noteDto)
+      
       setNotes(prev => prev.map(note => 
         note.id === noteDto.id ? {
           ...note,
           content: noteDto.content,
           updatedAt: new Date(noteDto.updatedAt),
           version: noteDto.version,
-          lastModified: new Date(noteDto.updatedAt)
+          lastModified: new Date(noteDto.updatedAt),
+          imageUrls: noteDto.imageUrls || [],
+          reactions: (noteDto.reactions || []).map(reaction => ({
+            ...reaction,
+            hasCurrentUser: reaction.users.includes(currentUser)
+          }))
         } : note
       ))
     }
@@ -403,10 +430,38 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     }
 
     const handleUserJoined = (email: string) => {
+      console.log('👤 User joined workspace:', email)
       setActiveCollaborators(prev => prev.includes(email) ? prev : [...prev, email])
-      setUsers(prev => prev.map(user => 
-        user.email === email ? { ...user, isOnline: true } : user
-      ))
+      setUsers(prev => {
+        const existingUser = prev.find(user => user.email === email)
+        if (existingUser) {
+          // Update existing user to online
+          return prev.map(user => 
+            user.email === email ? { ...user, isOnline: true } : user
+          )
+        } else {
+          // Add new user to the list
+          const newUser: User = {
+            id: `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            email: email,
+            displayName: email.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+            noteCount: 0,
+            isOnline: true,
+            lastSeen: new Date(),
+            cursor: { x: 0, y: 0 }
+          }
+          return [...prev, newUser]
+        }
+      })
+      
+      // Show toast notification for new user
+      if (email !== currentUser) {
+        toast({
+          title: "User Joined",
+          description: `${email} joined the workspace`,
+          duration: 3000,
+        })
+      }
     }
 
     const handleUserLeft = (email: string) => {
@@ -421,8 +476,133 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
       ))
     }
 
+    const handleUserSignedOut = (email: string) => {
+      console.log('👋 User signed out (removing completely):', email)
+      setActiveCollaborators(prev => prev.filter(e => e !== email))
+      setCursors(prev => {
+        const newCursors = new Map(prev)
+        newCursors.delete(email)
+        return newCursors
+      })
+      // Remove user completely from the list (not just mark offline)
+      setUsers(prev => prev.filter(user => user.email !== email))
+      
+      toast({
+        title: "User Left",
+        description: `${email} left the workspace`,
+        duration: 3000,
+      })
+    }
+
     const handleCursorMoved = (email: string, x: number, y: number) => {
       setCursors(prev => new Map(prev).set(email, { x, y }))
+    }
+
+    const handleReactionAdded = (reactionData: NoteReactionDto) => {
+      console.log('🎯 Received ReactionAdded event:', reactionData)
+      
+      // Update the note with the new reaction
+      setNotes(prev => prev.map(note => {
+        if (note.id === reactionData.noteId) {
+          // Find existing reaction of this type
+          const existingReactionIndex = note.reactions.findIndex(r => r.reactionType === reactionData.reactionType)
+          
+          if (existingReactionIndex >= 0) {
+            // Update existing reaction
+            const updatedReactions = [...note.reactions]
+            const existingReaction = updatedReactions[existingReactionIndex]
+            
+            // Check if user is already in the list
+            if (!existingReaction.users.includes(reactionData.userEmail)) {
+              const newUsers = [...existingReaction.users, reactionData.userEmail]
+              updatedReactions[existingReactionIndex] = {
+                ...existingReaction,
+                count: existingReaction.count + 1,
+                users: newUsers,
+                hasCurrentUser: newUsers.includes(currentUser)
+              }
+            }
+            
+            // Update hasCurrentUser for all reactions
+            return { 
+              ...note, 
+              reactions: updatedReactions.map(reaction => ({
+                ...reaction,
+                hasCurrentUser: reaction.users.includes(currentUser)
+              }))
+            }
+          } else {
+            // Add new reaction type
+            const newReaction = {
+              reactionType: reactionData.reactionType,
+              count: 1,
+              users: [reactionData.userEmail],
+              hasCurrentUser: reactionData.userEmail === currentUser
+            }
+            
+            // Update hasCurrentUser for all reactions when adding new one
+            const allReactions = [...note.reactions, newReaction].map(reaction => ({
+              ...reaction,
+              hasCurrentUser: reaction.users.includes(currentUser)
+            }))
+            
+            return { ...note, reactions: allReactions }
+          }
+        }
+        return note
+      }))
+
+      // Show floating reaction if it's not from the current user
+      if (reactionData.userEmail !== currentUser) {
+        const newFloatingReaction = {
+          id: `${Date.now()}-${reactionData.userEmail}`,
+          reaction: reactionData.reactionType,
+          userEmail: reactionData.userEmail,
+          x: Math.random() * 100 + 50, // Random position
+          y: Math.random() * 100 + 50
+        }
+        
+        setFloatingReactions(prev => [...prev, newFloatingReaction])
+        
+        // Remove floating reaction after animation
+        setTimeout(() => {
+          setFloatingReactions(prev => prev.filter(r => r.id !== newFloatingReaction.id))
+        }, 3000)
+      }
+    }
+
+    const handleReactionRemoved = (reactionId: string) => {
+      console.log('🎯 Received ReactionRemoved event:', reactionId)
+      // This would need the full reaction data to properly update the UI
+      // For now, we'll handle it in the UserReactionRemoved event
+    }
+
+    const handleUserReactionRemoved = (noteId: string, userEmail: string, reactionType: string) => {
+      console.log('🎯 Received UserReactionRemoved event:', { noteId, userEmail, reactionType })
+      
+      // Remove the user's specific reaction from the note
+      setNotes(prev => prev.map(note => {
+        if (note.id === noteId) {
+          const updatedReactions = note.reactions.map(reaction => {
+            if (reaction.reactionType === reactionType && reaction.users.includes(userEmail)) {
+              const newUsers = reaction.users.filter(u => u !== userEmail)
+              return {
+                ...reaction,
+                count: Math.max(0, reaction.count - 1),
+                users: newUsers,
+                hasCurrentUser: newUsers.includes(currentUser)
+              }
+            }
+            return {
+              ...reaction,
+              hasCurrentUser: reaction.users.includes(currentUser)
+            }
+          }).filter(reaction => reaction.count > 0) // Remove reactions with 0 count
+          
+          return { ...note, reactions: updatedReactions }
+        }
+        return note
+      }))
     }
 
     // Set up event listeners
@@ -432,7 +612,11 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     signalRService.on('NoteDeleted', handleNoteDeleted)
     signalRService.on('UserJoined', handleUserJoined)
     signalRService.on('UserLeft', handleUserLeft)
+    signalRService.on('UserSignedOut', handleUserSignedOut)
     signalRService.on('CursorMoved', handleCursorMoved)
+    signalRService.on('ReactionAdded', handleReactionAdded)
+    signalRService.on('ReactionRemoved', handleReactionRemoved)
+    signalRService.on('UserReactionRemoved', handleUserReactionRemoved)
 
     return () => {
       signalRService.off('NoteCreated', handleNoteCreated)
@@ -441,7 +625,11 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
       signalRService.off('NoteDeleted', handleNoteDeleted)
       signalRService.off('UserJoined', handleUserJoined)
       signalRService.off('UserLeft', handleUserLeft)
+      signalRService.off('UserSignedOut', handleUserSignedOut)
       signalRService.off('CursorMoved', handleCursorMoved)
+      signalRService.off('ReactionAdded', handleReactionAdded)
+      signalRService.off('ReactionRemoved', handleReactionRemoved)
+      signalRService.off('UserReactionRemoved', handleUserReactionRemoved)
     }
   }, [signalRService, isConnected, toast, currentUser, notes])
 
@@ -471,7 +659,12 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
           workspaceId: noteDto.workspaceId,
           version: noteDto.version,
           lastModified: new Date(noteDto.updatedAt),
-          collaborators: [noteDto.authorEmail]
+          collaborators: [noteDto.authorEmail],
+          imageUrls: noteDto.imageUrls || [],
+          reactions: (noteDto.reactions || []).map(reaction => ({
+            ...reaction,
+            hasCurrentUser: reaction.users.includes(currentUser)
+          }))
         }))
 
         const convertedUsers: User[] = usersData.map(userDto => ({
@@ -984,7 +1177,9 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
           workspaceId: createdNote.workspaceId,
           version: createdNote.version,
           lastModified: new Date(createdNote.updatedAt),
-          collaborators: [createdNote.authorEmail]
+          collaborators: [createdNote.authorEmail],
+          imageUrls: createdNote.imageUrls || [],
+          reactions: createdNote.reactions || []
         }
         setNotes((prev) => [...prev, newNote])
         console.log('Note added to local state')
@@ -1174,6 +1369,126 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     }
   }, [notes, signalRService, isConnected, toast])
 
+  // Image upload handler
+  const handleImageUpload = useCallback(async (noteId: string, file: File) => {
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+
+      const response = await fetch(`${config.api.baseUrl}/api/notes/${noteId}/images`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem(config.auth.tokenKey)}`
+        },
+        body: formData
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to upload image')
+      }
+
+      const result = await response.json()
+      
+             // Refresh the notes to show the new image
+       const updatedNotesData = await apiService.getNotes(config.workspace.defaultWorkspaceId)
+       const updatedNotes: Note[] = updatedNotesData.map(noteDto => ({
+         id: noteDto.id,
+         content: noteDto.content,
+         author: noteDto.authorEmail,
+         createdAt: new Date(noteDto.createdAt),
+         updatedAt: new Date(noteDto.updatedAt),
+         x: noteDto.x,
+         y: noteDto.y,
+         workspaceId: noteDto.workspaceId,
+         version: noteDto.version,
+         lastModified: new Date(noteDto.updatedAt),
+         collaborators: [noteDto.authorEmail],
+         imageUrls: noteDto.imageUrls || [],
+         reactions: [] // Add missing reactions property
+       }))
+       setNotes(updatedNotes)
+      
+      toast({
+        title: "Image uploaded successfully",
+        description: "Your image has been added to the note.",
+        duration: 3000,
+      })
+    } catch (error: any) {
+      console.error('Error uploading image:', error)
+      toast({
+        title: "Upload failed",
+        description: error.message || "Failed to upload image. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }, [toast, currentUser])
+
+  // Reaction handlers
+  const handleAddReaction = useCallback(async (noteId: string, reactionType: string) => {
+    try {
+      // Send reaction via SignalR if available
+      if (signalRService && isConnected) {
+        await signalRService.addReaction(config.workspace.defaultWorkspaceId, {
+          noteId,
+          reactionType
+        })
+      } else {
+        // Fallback to direct API call
+        const response = await fetch(`${config.api.baseUrl}/api/notes/${noteId}/reactions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem(config.auth.tokenKey)}`
+          },
+          body: JSON.stringify({ reactionType })
+        })
+
+        if (!response.ok) {
+          const errorData = await response.json()
+          throw new Error(errorData.error || 'Failed to add reaction')
+        }
+      }
+    } catch (error: any) {
+      console.error('Error adding reaction:', error)
+      toast({
+        title: "Error",
+        description: error.message || "Failed to add reaction. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }, [signalRService, isConnected, toast])
+
+  const handleRemoveReaction = useCallback(async (noteId: string, reactionType: string) => {
+    console.log(`🗑️ Removing reaction ${reactionType} from note ${noteId}`)
+    try {
+      // Send reaction removal via SignalR if available
+      if (signalRService && isConnected) {
+        await signalRService.removeUserReaction(config.workspace.defaultWorkspaceId, noteId, reactionType)
+      } else {
+        // Fallback to direct API call
+        const response = await fetch(`${config.api.baseUrl}/api/notes/${noteId}/reactions?reactionType=${encodeURIComponent(reactionType)}`, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem(config.auth.tokenKey)}`
+          }
+        })
+
+        if (!response.ok) {
+          const errorData = await response.json()
+          throw new Error(errorData.error || 'Failed to remove reaction')
+        }
+      }
+    } catch (error: any) {
+      console.error('Error removing reaction:', error)
+      toast({
+        title: "Error",
+        description: error.message || "Failed to remove reaction. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }, [signalRService, isConnected, toast])
+
   // Optimized user click handler with memoization
   const handleUserClick = useCallback((userEmail: string) => {
     const userDisplayName = getDisplayName(userEmail)
@@ -1264,10 +1579,10 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
   const handleSignOut = async () => {
     console.log('🔐 Starting sign out process...')
     try {
-      // Step 1: Leave workspace via SignalR
+      // Step 1: Sign out from workspace via SignalR (this will remove user completely)
       if (signalRService && isConnected) {
-        console.log('📡 Leaving workspace via SignalR...')
-        await signalRService.leaveWorkspace(config.workspace.defaultWorkspaceId)
+        console.log('📡 Signing out from workspace via SignalR...')
+        await signalRService.signOut(config.workspace.defaultWorkspaceId)
       }
       
       // Step 2: Disconnect SignalR
@@ -1384,7 +1699,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
               
               <div className="flex items-center gap-2">
                 <div className="hidden md:flex items-center gap-1 text-xs text-muted-foreground">
-                  <span>{activeCollaborators.length} active</span>
+                  <span>{activeCollaborators.length + 1} active</span>
                   <Separator orientation="vertical" className="h-4" />
                   <span>Zoom: {Math.round(canvas.scale * 100)}%</span>
                 </div>
@@ -1478,6 +1793,9 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
                   onUpdate={updateNote}
                   onDelete={deleteNote}
                   onMove={moveNote}
+                  onImageUpload={handleImageUpload}
+                  onAddReaction={handleAddReaction}
+                  onRemoveReaction={handleRemoveReaction}
                 />
               ))}
 
@@ -1628,3 +1946,4 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     </TooltipProvider>
   )
 }
+

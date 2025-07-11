@@ -190,6 +190,23 @@ class SignalRService {
       this.emit('NoteDeleted', noteId);
     });
 
+    this.connection.on('ReactionAdded', (reaction: any) => {
+      this.emit('ReactionAdded', reaction);
+    });
+
+    this.connection.on('ReactionRemoved', (reactionId: string) => {
+      this.emit('ReactionRemoved', reactionId);
+    });
+
+    this.connection.on('UserReactionRemoved', (noteId: string, userEmail: string, reactionType: string) => {
+      this.emit('UserReactionRemoved', noteId, userEmail, reactionType);
+    });
+
+    this.connection.on('UserSignedOut', (email: string) => {
+      console.log(`👋 User signed out: ${email}`);
+      this.emit('UserSignedOut', email);
+    });
+
     this.connection.on('Error', (error: string) => {
       console.error('SignalR server error:', error);
       this.emit('Error', error);
@@ -402,6 +419,63 @@ class SignalRService {
     } catch (error) {
       console.error('Error deleting note via SignalR:', error);
       throw error;
+    }
+  }
+
+  async addReaction(workspaceId: string, reactionData: { noteId: string; reactionType: string }): Promise<void> {
+    if (!this.connection || this.connection.state !== HubConnectionState.Connected) {
+      throw new Error('SignalR not connected');
+    }
+
+    try {
+      await this.connection.invoke('AddReaction', workspaceId, reactionData);
+    } catch (error) {
+      console.error('Error adding reaction via SignalR:', error);
+      throw error;
+    }
+  }
+
+  async removeReaction(workspaceId: string, reactionId: string): Promise<void> {
+    if (!this.connection || this.connection.state !== HubConnectionState.Connected) {
+      throw new Error('SignalR not connected');
+    }
+
+    try {
+      await this.connection.invoke('RemoveReaction', workspaceId, reactionId);
+    } catch (error) {
+      console.error('Error removing reaction via SignalR:', error);
+      throw error;
+    }
+  }
+
+  async removeUserReaction(workspaceId: string, noteId: string, reactionType: string): Promise<void> {
+    if (!this.connection || this.connection.state !== HubConnectionState.Connected) {
+      throw new Error('SignalR not connected');
+    }
+
+    try {
+      await this.connection.invoke('RemoveUserReaction', workspaceId, noteId, reactionType);
+    } catch (error) {
+      console.error('Error removing user reaction via SignalR:', error);
+      throw error;
+    }
+  }
+
+  async signOut(workspaceId: string): Promise<void> {
+    console.log(`🚪 Attempting to sign out from workspace: ${workspaceId}`);
+    
+    if (!this.connection || this.connection.state !== HubConnectionState.Connected) {
+      console.log(`⚠️ Cannot sign out from workspace ${workspaceId} - SignalR not connected (state: ${this.connection?.state})`);
+      return;
+    }
+
+    try {
+      console.log(`📡 Invoking SignOut for: ${workspaceId}`);
+      await this.connection.invoke('SignOut', workspaceId);
+      console.log(`✅ Successfully signed out from workspace: ${workspaceId}`);
+    } catch (error) {
+      console.error(`❌ Error signing out from workspace ${workspaceId}:`, error);
+      // Don't throw error for sign out to avoid disrupting the process
     }
   }
 

@@ -41,6 +41,8 @@ export interface NoteDto {
   createdAt: string;
   updatedAt: string;
   version: number;
+  imageUrls: string[]; // Add image support
+  reactions: NoteReactionSummaryDto[]; // Add reaction support
 }
 
 export interface NoteCreateDto {
@@ -59,6 +61,33 @@ export interface NoteUpdateDto {
 export interface NotePositionUpdateDto {
   x: number;
   y: number;
+}
+
+// Reaction-related DTOs
+export interface NoteReactionDto {
+  id: string;
+  noteId: string;
+  userEmail: string;
+  reactionType: string;
+  workspaceId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NoteReactionCreateDto {
+  noteId: string;
+  reactionType: string;
+}
+
+export interface NoteReactionUpdateDto {
+  reactionType: string;
+}
+
+export interface NoteReactionSummaryDto {
+  reactionType: string;
+  count: number;
+  users: string[];
+  hasCurrentUser: boolean;
 }
 
 // SignalR-related types
@@ -83,6 +112,8 @@ export interface Note {
   version: number;
   lastModified?: Date;
   collaborators?: string[];
+  imageUrls: string[]; // Add image support
+  reactions: NoteReactionSummaryDto[]; // Add reaction support
 }
 
 export interface User {
@@ -120,6 +151,9 @@ export interface SignalREvents {
   NoteUpdated: (note: NoteDto) => void;
   NoteMoved: (note: NoteDto) => void;
   NoteDeleted: (noteId: string) => void;
+  ReactionAdded: (reaction: NoteReactionDto) => void;
+  ReactionRemoved: (reactionId: string) => void;
+  UserReactionRemoved: (noteId: string, userEmail: string) => void;
   Error: (error: string) => void;
 }
 
@@ -132,4 +166,7 @@ export interface SignalRMethods {
   UpdateNote: (noteId: string, noteData: NoteUpdateDto) => Promise<void>;
   MoveNote: (noteId: string, x: number, y: number) => Promise<void>;
   DeleteNote: (noteId: string) => Promise<void>;
+  AddReaction: (workspaceId: string, reactionData: NoteReactionCreateDto) => Promise<void>;
+  RemoveReaction: (workspaceId: string, reactionId: string) => Promise<void>;
+  RemoveUserReaction: (workspaceId: string, noteId: string) => Promise<void>;
 } 

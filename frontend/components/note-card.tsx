@@ -4,9 +4,10 @@ import React, { useState, useRef, useCallback, useEffect, memo } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { Trash2, GripVertical, Save, X } from "lucide-react"
+import { Trash2, GripVertical, Save, X, ImagePlus } from "lucide-react"
 import { Note } from "@/types/api"
 import { rafThrottle, useDebouncedCallback } from "@/lib/performance"
+import { ReactionPicker } from "./reaction-picker"
 
 // Helper function to get display name from email
 const getDisplayName = (email: string): string => {
@@ -22,9 +23,12 @@ interface NoteCardProps {
   onUpdate: (id: string, content: string) => void
   onDelete: (id: string) => void
   onMove: (id: string, x: number, y: number) => void
+  onImageUpload: (noteId: string, file: File) => Promise<void>
+  onAddReaction: (noteId: string, reactionType: string) => void
+  onRemoveReaction: (noteId: string, reactionType: string) => void
 }
 
-const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userColor, onUpdate, onDelete, onMove }: NoteCardProps) => {
+const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userColor, onUpdate, onDelete, onMove, onImageUpload, onAddReaction, onRemoveReaction }: NoteCardProps) => {
   const [isEditing, setIsEditing] = useState(isOwner && (note.content === "" || note.content === "New note"))
   const [content, setContent] = useState(note.content)
   const [originalContent, setOriginalContent] = useState(note.content)
@@ -34,8 +38,11 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
   const [mouseOffset, setMouseOffset] = useState({ x: 0, y: 0 }) // Offset from mouse to note corner
   const [currentPosition, setCurrentPosition] = useState({ x: note.x, y: note.y })
   const [isTouchDevice, setIsTouchDevice] = useState(false)
+  const [isUploadingImage, setIsUploadingImage] = useState(false)
+  const [showAllImages, setShowAllImages] = useState(false)
   const cardRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Memoize display name calculation
   const displayName = getDisplayName(note.author)
@@ -138,7 +145,19 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
 
   useEffect(() => {
     if (isEditing && textareaRef.current) {
-      textareaRef.current.focus()
+      const textarea = textareaRef.current
+      
+      // Focus the textarea
+      textarea.focus()
+      
+      // Set cursor position to the end of the text
+      const textLength = textarea.value.length
+      textarea.setSelectionRange(textLength, textLength)
+      
+      // For new notes with placeholder content, select all text for easy replacement
+      if (content === "New note" || content === "" || content === "Tap to add content...") {
+        textarea.select()
+      }
       
       if (isTouchDevice) {
         setTimeout(() => {
@@ -149,7 +168,7 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
         }, 300)
       }
     }
-  }, [isEditing, isTouchDevice])
+  }, [isEditing, isTouchDevice, content])
 
   const handleContentChange = useCallback((newContent: string) => {
     setContent(newContent)
@@ -188,8 +207,37 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
     setIsEditing(false)
   }, [originalContent])
 
+  const handleImageUpload = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    setIsUploadingImage(true)
+    try {
+      await onImageUpload(note.id, file)
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    } catch (error) {
+      console.error('Image upload failed:', error)
+    } finally {
+      setIsUploadingImage(false)
+    }
+  }, [onImageUpload, note.id])
+
   const handleStart = useCallback((clientX: number, clientY: number, e: any) => {
     if (!canDrag || isEditing) return
+    
+    // Check if the event target is part of the reaction picker or other interactive elements
+    const target = e.target as HTMLElement
+    const isReactionPicker = target.closest('[data-reaction-picker]') !== null
+    const isButton = target.closest('button') !== null
+    const isInput = target.closest('input, textarea') !== null
+    
+    if (isReactionPicker || (isButton && !target.closest('[data-drag-handle]')) || isInput) {
+      return // Don't start dragging if clicking on interactive elements
+    }
+    
     e.stopPropagation()
     
     // Calculate initial offset from mouse to note's current position in canvas coordinates
@@ -252,7 +300,7 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
       // Force a final update to backend when dragging ends
       debouncedMove.flush()
     }
-  }, [isDragging, debouncedMove])
+  }, [isDragging])
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     handleStart(e.clientX, e.clientY, e)
@@ -300,6 +348,8 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
   }, [isOwner])
 
   useEffect(() => {
+    if (!isDragging) return
+
     const handleMouseMove = (e: MouseEvent) => {
       e.preventDefault()
       handleMove(e.clientX, e.clientY)
@@ -313,20 +363,28 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
       }
     }
 
-    if (isDragging) {
-      document.addEventListener("mousemove", handleMouseMove, { passive: false })
-      document.addEventListener("mouseup", handleEnd)
-      document.addEventListener("touchmove", handleTouchMove, { passive: false })
-      document.addEventListener("touchend", handleEnd)
-
-      return () => {
-        document.removeEventListener("mousemove", handleMouseMove)
-        document.removeEventListener("mouseup", handleEnd)
-        document.removeEventListener("touchmove", handleTouchMove)
-        document.removeEventListener("touchend", handleEnd)
-      }
+    const handleMouseUp = () => {
+      setIsDragging(false)
+      debouncedMove.flush()
     }
-  }, [isDragging, handleMove, handleEnd])
+
+    const handleTouchEnd = () => {
+      setIsDragging(false)
+      debouncedMove.flush()
+    }
+
+    document.addEventListener("mousemove", handleMouseMove, { passive: false })
+    document.addEventListener("mouseup", handleMouseUp)
+    document.addEventListener("touchmove", handleTouchMove, { passive: false })
+    document.addEventListener("touchend", handleTouchEnd)
+
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove)
+      document.removeEventListener("mouseup", handleMouseUp)
+      document.removeEventListener("touchmove", handleTouchMove)
+      document.removeEventListener("touchend", handleTouchEnd)
+    }
+  }, [isDragging, handleMove])
 
   // Cancel any pending debounced calls when component unmounts
   useEffect(() => {
@@ -383,7 +441,7 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
           )}
           
           {canDrag && !isEditing && (
-            <div className="flex items-center gap-0.5" title={isOwner ? "Drag to move" : "Anyone can move this note"}>
+            <div className="flex items-center gap-0.5" data-drag-handle title={isOwner ? "Drag to move" : "Anyone can move this note"}>
               <GripVertical className={`w-4 h-4 ${isDragging ? 'text-primary' : 'text-muted-foreground'} ${!isOwner ? 'opacity-70' : ''}`} />
             </div>
           )}
@@ -449,6 +507,111 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
           {content ? content : "Tap to add content..."}
         </div>
       )}
+
+      {/* Image Gallery - Compact Design */}
+      {note.imageUrls && note.imageUrls.length > 0 && (
+        <div className="mt-3 border-t pt-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-xs text-muted-foreground font-medium">
+              {note.imageUrls.length} image{note.imageUrls.length !== 1 ? 's' : ''}
+            </div>
+            {note.imageUrls.length > 3 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setShowAllImages(!showAllImages)
+                }}
+                className="h-6 px-2 text-xs"
+                onMouseDown={handleStopPropagation}
+                onTouchStart={handleStopPropagation}
+              >
+                {showAllImages ? 'Show less' : 'Show all'}
+              </Button>
+            )}
+          </div>
+          
+          <div className={`grid grid-cols-3 gap-1.5 ${
+            note.imageUrls.length > 3 && !showAllImages 
+              ? 'max-h-32 overflow-hidden' 
+              : note.imageUrls.length > 9 
+                ? 'max-h-48 overflow-y-auto' 
+                : ''
+          }`}>
+            {(showAllImages ? note.imageUrls : note.imageUrls.slice(0, 3)).map((url, index) => (
+              <div key={index} className="relative group">
+                <img 
+                  src={url} 
+                  alt={`Note image ${index + 1}`}
+                  className="w-full h-12 object-cover rounded border cursor-pointer hover:opacity-90 hover:ring-1 hover:ring-primary/50 transition-all"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    // Open image in new tab
+                    window.open(url, '_blank')
+                  }}
+                  onMouseDown={handleStopPropagation}
+                  onTouchStart={handleStopPropagation}
+                />
+                {/* Image overlay with number for better organization */}
+                <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity rounded flex items-center justify-center">
+                  <span className="text-white text-xs font-medium">
+                    {index + 1}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+          
+          {/* Show preview of hidden images */}
+          {note.imageUrls.length > 3 && !showAllImages && (
+            <div className="mt-2 text-xs text-muted-foreground text-center">
+              +{note.imageUrls.length - 3} more images
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Image Upload Button - Integrated */}
+      {isOwner && (
+        <div className="mt-2 pt-2 border-t">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={(e) => {
+              e.stopPropagation()
+              fileInputRef.current?.click()
+            }}
+            disabled={isUploadingImage}
+            className="h-7 px-2 text-xs w-full"
+            onMouseDown={handleStopPropagation}
+            onTouchStart={handleStopPropagation}
+          >
+            <ImagePlus className="w-3 h-3 mr-1" />
+            {isUploadingImage ? 'Uploading...' : 'Add Image'}
+          </Button>
+        </div>
+      )}
+
+      {/* Reactions */}
+      <div className="mt-2 pt-2 border-t">
+        <ReactionPicker
+          noteId={note.id}
+          reactions={note.reactions}
+          onAddReaction={onAddReaction}
+          onRemoveReaction={onRemoveReaction}
+          disabled={isDragging}
+        />
+      </div>
+
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleImageUpload}
+        className="hidden"
+      />
 
       <div className="text-xs text-muted-foreground mt-2">
         {timeString}
