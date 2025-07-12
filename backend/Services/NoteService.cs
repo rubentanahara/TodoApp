@@ -506,6 +506,116 @@ public class NoteService : INoteService
         }
     }
 
+    public async Task<ApiResponse<bool>> RemoveImageFromNoteAsync(Guid noteId, string imageUrl, string authorEmail)
+    {
+        try
+        {
+            var note = await _noteRepository.GetByIdAsync(noteId);
+            if (note == null)
+            {
+                return new ApiResponse<bool>
+                {
+                    Success = false,
+                    Error = "Note not found"
+                };
+            }
+
+            // Check if user is the author (only authors can delete images)
+            if (note.AuthorEmail != authorEmail)
+            {
+                return new ApiResponse<bool>
+                {
+                    Success = false,
+                    Error = "You can only delete images from your own notes"
+                };
+            }
+
+            // Parse existing image URLs
+            var imageUrls = new List<string>();
+            if (!string.IsNullOrEmpty(note.ImageUrls))
+            {
+                try
+                {
+                    imageUrls = JsonSerializer.Deserialize<List<string>>(note.ImageUrls) ?? new();
+                }
+                catch
+                {
+                    imageUrls = new List<string>();
+                }
+            }
+
+            // Check if image URL exists in the note
+            if (!imageUrls.Contains(imageUrl))
+            {
+                return new ApiResponse<bool>
+                {
+                    Success = false,
+                    Error = "Image not found in this note"
+                };
+            }
+
+            // Remove the image URL from the list
+            imageUrls.Remove(imageUrl);
+
+            // Update note
+            note.ImageUrls = JsonSerializer.Serialize(imageUrls);
+            note.UpdatedAt = DateTime.UtcNow;
+            note.Version++;
+
+            await _noteRepository.UpdateAsync(note);
+            await _noteRepository.SaveChangesAsync();
+
+            // Try to delete the physical file
+            try
+            {
+                // Extract filename from URL (assuming format: http://domain/uploads/filename.ext)
+                var uri = new Uri(imageUrl);
+                var fileName = Path.GetFileName(uri.LocalPath);
+                
+                if (!string.IsNullOrEmpty(fileName))
+                {
+                    var uploadsDir = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads");
+                    var filePath = Path.Combine(uploadsDir, fileName);
+                    
+                    if (File.Exists(filePath))
+                    {
+                        File.Delete(filePath);
+                        _logger.LogInformation("Deleted physical file: {FilePath}", filePath);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Physical file not found for deletion: {FilePath}", filePath);
+                    }
+                }
+            }
+            catch (Exception fileEx)
+            {
+                _logger.LogWarning(fileEx, "Failed to delete physical file for image: {ImageUrl}", imageUrl);
+                // Don't fail the operation if file deletion fails
+            }
+
+            // Invalidate cache
+            InvalidateNoteCache(noteId);
+            InvalidateWorkspaceCache(note.WorkspaceId);
+
+            _logger.LogInformation("Removed image from note {NoteId} by {AuthorEmail}: {ImageUrl}", noteId, authorEmail, imageUrl);
+            return new ApiResponse<bool>
+            {
+                Success = true,
+                Data = true
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error removing image from note {NoteId} by {AuthorEmail}", noteId, authorEmail);
+            return new ApiResponse<bool>
+            {
+                Success = false,
+                Error = "Failed to remove image from note"
+            };
+        }
+    }
+
     private static NoteDto MapToDto(Note note)
     {
         var imageUrls = new List<string>();

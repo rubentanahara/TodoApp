@@ -467,4 +467,86 @@ public class NotesController : ControllerBase
             });
         }
     }
+
+    /// <summary>
+    /// Delete an image from a note
+    /// </summary>
+    /// <param name="noteId">Note ID</param>
+    /// <param name="deleteImageDto">Image deletion data</param>
+    /// <returns>Success confirmation</returns>
+    [HttpDelete("/api/notes/{noteId}/images")]
+    [ProducesResponseType(typeof(ApiResponse<bool>), 200)]
+    [ProducesResponseType(typeof(ApiResponse<object>), 400)]
+    [ProducesResponseType(typeof(ApiResponse<object>), 401)]
+    [ProducesResponseType(typeof(ApiResponse<object>), 404)]
+    public async Task<IActionResult> DeleteImage(
+        [FromRoute] Guid noteId,
+        [FromBody] DeleteImageDto deleteImageDto)
+    {
+        try
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(new ApiResponse<object>
+                {
+                    Success = false,
+                    Error = "Invalid input data",
+                    Data = ModelState
+                });
+            }
+
+            var userEmail = User.FindFirst(ClaimTypes.Email)?.Value;
+            if (string.IsNullOrEmpty(userEmail))
+            {
+                return Unauthorized(new ApiResponse<object>
+                {
+                    Success = false,
+                    Error = "User not authenticated"
+                });
+            }
+
+            var result = await _noteService.RemoveImageFromNoteAsync(noteId, deleteImageDto.ImageUrl, userEmail);
+            
+            if (!result.Success)
+            {
+                if (result.Error?.Contains("not found") == true)
+                {
+                    return NotFound(result);
+                }
+                return BadRequest(result);
+            }
+
+            // Broadcast the updated note to all users in the workspace
+            try
+            {
+                var updatedNote = await _noteService.GetNoteAsync(noteId);
+                if (updatedNote.Success)
+                {
+                    await _hubContext.Clients.Group(updatedNote.Data.WorkspaceId).SendAsync("NoteUpdated", updatedNote.Data);
+                    _logger.LogInformation("Broadcasted image deletion for note {NoteId} to workspace {WorkspaceId}", 
+                        noteId, updatedNote.Data.WorkspaceId);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to broadcast image deletion for note {NoteId}", noteId);
+                // Don't fail the request if broadcast fails
+            }
+
+            return Ok(new ApiResponse<bool>
+            {
+                Success = true,
+                Data = true
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting image from note {NoteId}", noteId);
+            return StatusCode(500, new ApiResponse<object>
+            {
+                Success = false,
+                Error = "An internal server error occurred"
+            });
+        }
+    }
 } 
