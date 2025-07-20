@@ -39,14 +39,12 @@ builder.Services.AddDbContext<NotesDbContext>(options =>
 // Add repositories
 builder.Services.AddScoped<IRepository<Note>, Repository<Note>>();
 builder.Services.AddScoped<IRepository<User>, Repository<User>>();
-builder.Services.AddScoped<IRepository<UserCursor>, Repository<UserCursor>>();
 builder.Services.AddScoped<IRepository<NoteReaction>, Repository<NoteReaction>>();
 
 // Add services
 builder.Services.AddScoped<INoteService, NoteService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
-builder.Services.AddScoped<IUserCursorService, UserCursorService>();
 builder.Services.AddScoped<INoteReactionService, NoteReactionService>();
 
 // Add memory cache

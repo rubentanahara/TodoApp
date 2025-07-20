@@ -12,15 +12,13 @@ public class CollaborationHub : Hub
     private readonly ILogger<CollaborationHub> _logger;
     private readonly INoteService _noteService;
     private readonly IUserService _userService;
-    private readonly IUserCursorService _userCursorService;
     private readonly INoteReactionService _reactionService;
 
-    public CollaborationHub(ILogger<CollaborationHub> logger, INoteService noteService, IUserService userService, IUserCursorService userCursorService, INoteReactionService reactionService)
+    public CollaborationHub(ILogger<CollaborationHub> logger, INoteService noteService, IUserService userService, INoteReactionService reactionService)
     {
         _logger = logger;
         _noteService = noteService;
         _userService = userService;
-        _userCursorService = userCursorService;
         _reactionService = reactionService;
     }
 
@@ -35,30 +33,6 @@ public class CollaborationHub : Hub
         }
 
         await Groups.AddToGroupAsync(Context.ConnectionId, workspaceId);
-        
-        try
-        {
-            // Update user presence to online when joining workspace
-            await _userService.UpdatePresenceAsync(email, true);
-            
-            // Send existing cursor positions to the newly joined user
-            var cursorsResult = await _userCursorService.GetWorkspaceCursorsAsync(workspaceId);
-            if (cursorsResult.Success && cursorsResult.Data != null)
-            {
-                foreach (var cursor in cursorsResult.Data)
-                {
-                    if (cursor.UserEmail != email) // Don't send user their own cursor
-                    {
-                        await Clients.Caller.SendAsync("CursorMoved", cursor.UserEmail, cursor.X, cursor.Y);
-                    }
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Could not send existing cursors to user {Email} joining workspace {WorkspaceId}", 
-                email, workspaceId);
-        }
 
         // Notify other users that this user joined (excluding the user who just joined)
         await Clients.GroupExcept(workspaceId, Context.ConnectionId).SendAsync("UserJoined", email);
@@ -76,91 +50,37 @@ public class CollaborationHub : Hub
         }
 
         await Groups.RemoveFromGroupAsync(Context.ConnectionId, workspaceId);
-        
-        try
-        {
-            // Remove cursor position when user leaves workspace
-            await _userCursorService.RemoveCursorAsync(email, workspaceId);
-            
-            // Update user presence to offline when leaving workspace
-            await _userService.UpdatePresenceAsync(email, false);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Could not remove cursor for user {Email} leaving workspace {WorkspaceId}", 
-                email, workspaceId);
-        }
 
         await Clients.Group(workspaceId).SendAsync("UserLeft", email);
         
         _logger.LogInformation("User {Email} left workspace {WorkspaceId}", email, workspaceId);
     }
-
-    public async Task UpdateCursor(string workspaceId, decimal x, decimal y)
-    {
-        var email = Context.User?.FindFirst(ClaimTypes.Email)?.Value;
-        
-        if (string.IsNullOrEmpty(email))
-        {
-            return;
-        }
-
-        _logger.LogInformation("Received cursor update for user {Email} in workspace {WorkspaceId}: ({X}, {Y})", 
-            email, workspaceId, x, y);
-
-        try
-        {
-            // Persist cursor position to database
-            var result = await _userCursorService.UpdateCursorAsync(email, workspaceId, x, y);
-            
-            if (result.Success)
-            {
-                // Broadcast to all users in workspace (including sender for confirmation)
-                await Clients.Group(workspaceId).SendAsync("CursorMoved", email, x, y);
-                
-                _logger.LogInformation("Cursor successfully updated and broadcasted for user {Email} in workspace {WorkspaceId}: ({X}, {Y})", 
-                    email, workspaceId, x, y);
-            }
-            else
-            {
-                // Send error only to caller
-                await Clients.Caller.SendAsync("Error", result.Error);
-                _logger.LogWarning("Failed to update cursor for user {Email}: {Error}", email, result.Error);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error updating cursor for user {Email} in workspace {WorkspaceId}", 
-                email, workspaceId);
-            await Clients.Caller.SendAsync("Error", "Failed to update cursor position");
-        }
-    }
-
+    
     public async Task CreateNote(string workspaceId, NoteCreateDto noteData)
     {
         var email = Context.User?.FindFirst(ClaimTypes.Email)?.Value;
-        
+
         if (string.IsNullOrEmpty(email))
         {
             await Clients.Caller.SendAsync("Error", "User not authenticated");
             return;
         }
 
-        _logger.LogInformation("SignalR CreateNote called by {Email} in workspace {WorkspaceId}. Content: '{Content}', Position: ({X}, {Y})", 
+        _logger.LogInformation("SignalR CreateNote called by {Email} in workspace {WorkspaceId}. Content: '{Content}', Position: ({X}, {Y})",
             email, workspaceId, noteData.Content, noteData.X, noteData.Y);
 
         try
         {
             var result = await _noteService.CreateNoteAsync(workspaceId, noteData, email);
-            
+
             if (result.Success)
             {
-                _logger.LogInformation("Broadcasting NoteCreated to workspace {WorkspaceId}. Note ID: {NoteId}, Content: '{Content}'", 
+                _logger.LogInformation("Broadcasting NoteCreated to workspace {WorkspaceId}. Note ID: {NoteId}, Content: '{Content}'",
                     workspaceId, result.Data.Id, result.Data.Content);
-                    
+
                 await Clients.Group(workspaceId).SendAsync("NoteCreated", result.Data);
-                
-                _logger.LogInformation("Note created via SignalR by {Email} in workspace {WorkspaceId} - broadcast completed", 
+
+                _logger.LogInformation("Note created via SignalR by {Email} in workspace {WorkspaceId} - broadcast completed",
                     email, workspaceId);
             }
             else
@@ -171,7 +91,7 @@ public class CollaborationHub : Hub
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error creating note via SignalR for user {Email} in workspace {WorkspaceId}", 
+            _logger.LogError(ex, "Error creating note via SignalR for user {Email} in workspace {WorkspaceId}",
                 email, workspaceId);
             await Clients.Caller.SendAsync("Error", "Failed to create note");
         }
@@ -235,9 +155,6 @@ public class CollaborationHub : Hub
             return;
         }
 
-        _logger.LogInformation("🚀 SignalR MoveNote called: NoteId={NoteId}, User={Email}, Position=({X}, {Y})", 
-            noteGuid, email, x, y);
-
         try
         {
             var result = await _noteService.MoveNoteAsync(noteGuid, x, y, email);
@@ -247,24 +164,17 @@ public class CollaborationHub : Hub
                 // Send to all users in the workspace
                 var workspaceId = result.Data.WorkspaceId;
                 
-                _logger.LogInformation("📡 Broadcasting NoteMoved to workspace {WorkspaceId}: NoteId={NoteId}, Position=({X}, {Y})", 
-                    workspaceId, noteGuid, x, y);
-                
                 await Clients.Group(workspaceId).SendAsync("NoteMoved", result.Data);
                 
-                _logger.LogInformation("✅ Note {NoteId} moved via SignalR by {Email} to ({X}, {Y}) - broadcast completed", 
-                    noteGuid, email, x, y);
             }
             else
             {
-                _logger.LogWarning("❌ Note move failed: {Error}", result.Error);
                 await Clients.Caller.SendAsync("Error", result.Error);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "❌ Error moving note via SignalR");
-            await Clients.Caller.SendAsync("Error", "Failed to move note");
+            await Clients.Caller.SendAsync("Error", "Failed to move note " + ex.Message);
         }
     }
 
@@ -325,7 +235,6 @@ public class CollaborationHub : Hub
             await _userService.UpdatePresenceAsync(email, true);
         }
 
-        _logger.LogInformation("User {Email} connected to SignalR", email ?? "Unknown");
         await base.OnConnectedAsync();
     }
 
@@ -339,12 +248,7 @@ public class CollaborationHub : Hub
             await _userService.UpdatePresenceAsync(email, false);
             
             try
-            {
-                // Remove all cursor positions for this user from all workspaces
-                // Note: In a real implementation, you might want to track which workspace the user was in
-                // For now, we'll remove from the default workspace
-                await _userCursorService.RemoveCursorAsync(email, "demo-workspace");
-                
+            {   
                 // Notify other users that this user left (broadcast to all workspaces)
                 await Clients.All.SendAsync("UserLeft", email);
             }
@@ -472,9 +376,6 @@ public class CollaborationHub : Hub
         {
             // Update user presence to offline
             await _userService.UpdatePresenceAsync(email, false);
-            
-            // Remove cursor position when user signs out
-            await _userCursorService.RemoveCursorAsync(email, workspaceId);
             
             // Remove from group
             await Groups.RemoveFromGroupAsync(Context.ConnectionId, workspaceId);

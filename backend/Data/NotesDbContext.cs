@@ -11,7 +11,6 @@ public class NotesDbContext : DbContext
 
     public DbSet<Note> Notes { get; set; }
     public DbSet<User> Users { get; set; }
-    public DbSet<UserCursor> UserCursors { get; set; }
     public DbSet<NoteReaction> NoteReactions { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -59,21 +58,6 @@ public class NotesDbContext : DbContext
             entity.HasIndex(e => e.LastSeen);
         });
 
-        // Configure UserCursor entity
-        modelBuilder.Entity<UserCursor>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-            entity.Property(e => e.Id).IsRequired().HasMaxLength(300);
-            entity.Property(e => e.UserEmail).IsRequired().HasMaxLength(256);
-            entity.Property(e => e.WorkspaceId).IsRequired().HasMaxLength(100);
-            entity.Property(e => e.X).HasPrecision(10, 2);
-            entity.Property(e => e.Y).HasPrecision(10, 2);
-            entity.Property(e => e.LastUpdated).IsRequired();
-            
-            // Composite unique index for UserEmail + WorkspaceId
-            entity.HasIndex(e => new { e.UserEmail, e.WorkspaceId }).IsUnique();
-        });
-
         // Configure NoteReaction entity
         modelBuilder.Entity<NoteReaction>(entity =>
         {
@@ -102,7 +86,7 @@ public class NotesDbContext : DbContext
             entity.HasIndex(e => new { e.NoteId, e.UserEmail }).IsUnique();
         });
 
-        // Note: Removed ValueGeneratedOnAdd for UserCursor since we manually set the Id
+
     }
 
     public override int SaveChanges()
