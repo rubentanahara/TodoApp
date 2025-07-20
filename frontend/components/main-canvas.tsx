@@ -5,18 +5,14 @@ import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { UserSidebar } from "@/components/user-sidebar"
 import { NoteCard } from "@/components/note-card"
-import { FloatingReaction } from "@/components/floating-reaction"
-import { Plus, LogOut, Menu, ZoomIn, ZoomOut, RotateCcw, Navigation, Maximize2, Minimize2, HelpCircle, Wifi, WifiOff, AlertCircle } from "lucide-react"
+import { Plus, LogOut, Menu, ZoomIn, ZoomOut, RotateCcw, Navigation, Maximize2, Minimize2, HelpCircle, AlertCircle } from "lucide-react"
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet"
-import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { useToast } from "@/hooks/use-toast"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { 
-  useThrottledCallback, 
-  useDebouncedCallback, 
   getViewportBounds, 
   isNoteInViewport, 
   getColorHash,
@@ -39,7 +35,7 @@ import { useAuth } from "@/lib/auth"
 import { apiService } from "@/lib/api"
 import { useSignalR } from "@/lib/signalr"
 import { config } from "@/lib/config"
-import { Note, User, NoteDto, UserDto, NoteCreateDto, NoteUpdateDto, NoteReactionDto } from "@/types/api"
+import { Note, User, NoteDto, NoteCreateDto, NoteUpdateDto, NoteReactionDto } from "@/types/api"
 
 // Using types from backend integration
 // Note and User types are imported from @/types/api
@@ -66,7 +62,7 @@ const CANVAS_SIZE = { width: 5000, height: 5000 }
 export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
   // Backend integration hooks
   const { logout } = useAuth()
-  const { isConnected, isReconnecting, lastError, signalRService } = useSignalR(config.workspace.defaultWorkspaceId)
+  const { isConnected, isReconnecting, signalRService } = useSignalR(config.workspace.defaultWorkspaceId)
   
   // Component state
   const [notes, setNotes] = useState<Note[]>([])
@@ -92,16 +88,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
 
   // Real-time collaboration state
   const [activeCollaborators, setActiveCollaborators] = useState<string[]>([])
-  const [cursors, setCursors] = useState<Map<string, { x: number; y: number }>>(new Map())
-  
-  // Floating reactions state
-  const [floatingReactions, setFloatingReactions] = useState<Array<{
-    id: string
-    reaction: string
-    x: number
-    y: number
-    userEmail: string
-  }>>([])
   
   // Track user-initiated moves to avoid showing notifications for own actions
   const userInitiatedMoves = useRef<Set<string>>(new Set())
@@ -193,33 +179,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     }
   }, [])
 
-  const getUserColorHex = useMemo(() => {
-    const colorMap: { [key: string]: string } = {
-      'bg-blue-500': '#3b82f6',
-      'bg-green-500': '#10b981',
-      'bg-purple-500': '#8b5cf6',
-      'bg-orange-500': '#f97316',
-      'bg-pink-500': '#ec4899',
-      'bg-indigo-500': '#6366f1',
-      'bg-red-500': '#ef4444',
-      'bg-teal-500': '#14b8a6',
-      'bg-blue-600': '#2563eb',
-      'bg-green-600': '#059669',
-      'bg-purple-600': '#7c3aed',
-      'bg-orange-600': '#ea580c',
-      'bg-pink-600': '#db2777',
-      'bg-indigo-600': '#4f46e5',
-      'bg-red-600': '#dc2626',
-      'bg-teal-600': '#0d9488',
-    }
-    
-    return (email: string, isHighlighted: boolean = false) => {
-      const userColor = getUserColor(email, isHighlighted)
-      const colorClass = userColor.bg
-      return colorMap[colorClass] || '#3b82f6'
-    }
-  }, [getUserColor])
-
   // Memoized viewport bounds calculation
   const viewportBounds = useMemo(() => {
     if (!containerRef.current) return null
@@ -237,17 +196,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     )
   }, [notes, viewportBounds])
 
-  // Memoized visible online users with cursor data (limit for performance)
-  const visibleOnlineUsers = useMemo(() => {
-    return users
-      .filter(u => u.isOnline && u.email !== currentUser)
-      .map(user => ({
-        ...user,
-        cursor: cursors.get(user.email) || user.cursor
-      }))
-      .filter(u => u.cursor)
-      .slice(0, 10) // Limit to 10 cursors for performance
-  }, [users, currentUser, cursors])
+
 
   // RAF-based throttled move function for smoother performance
   const rafThrottledMoveNote = useRef(
@@ -258,17 +207,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     })
   ).current
 
-  // Throttled cursor position updates for real-time collaboration
-  const throttledCursorUpdate = useRef(
-    useThrottledCallback((x: number, y: number) => {
-      if (signalRService && isConnected) {
-        signalRService.updateCursor(config.workspace.defaultWorkspaceId, x, y)
-          .catch(error => {
-            console.error('Error updating cursor:', error)
-          })
-      }
-    }, config.performance.cursorUpdateInterval)
-  ).current
+
 
   // Initialize data from backend
   useEffect(() => {
@@ -297,10 +236,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
           lastModified: new Date(noteDto.updatedAt),
           collaborators: [noteDto.authorEmail],
           imageUrls: noteDto.imageUrls || [],
-          reactions: (noteDto.reactions || []).map(reaction => ({
-            ...reaction,
-            hasCurrentUser: reaction.users.includes(currentUser)
-          }))
+          reactions: (noteDto.reactions || [])
         }))
 
         const convertedUsers: User[] = usersData.map(userDto => ({
@@ -309,8 +245,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
           displayName: userDto.displayName,
           noteCount: convertedNotes.filter(note => note.author === userDto.email).length,
           isOnline: userDto.isOnline,
-          lastSeen: new Date(userDto.lastSeen),
-          cursor: userDto.isOnline ? { x: 0, y: 0 } : undefined
+          lastSeen: new Date(userDto.lastSeen)
         }))
 
         // Ensure current user is always included in the users list
@@ -326,8 +261,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
             displayName: currentUser.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
             noteCount: currentUserNoteCount,
             isOnline: true, // Assume online since we're loading the app
-            lastSeen: new Date(),
-            cursor: { x: 0, y: 0 }
+            lastSeen: new Date()
           }
           finalUsers = [...convertedUsers, currentUserEntry]
         }
@@ -335,10 +269,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
         setNotes(convertedNotes)
         setUsers(finalUsers)
         setActiveCollaborators(finalUsers.filter(u => u.isOnline && u.email !== currentUser).map(u => u.email))
-        
-        console.log('Loaded notes:', convertedNotes.length)
-        console.log('Loaded users:', finalUsers.length)
-        console.log('Current user in list:', finalUsers.some(u => u.email === currentUser))
         
       } catch (err: any) {
         console.error('Error loading data:', err)
@@ -489,8 +419,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
             displayName: email.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
             noteCount: noteCount,
             isOnline: true,
-            lastSeen: new Date(),
-            cursor: { x: 0, y: 0 }
+            lastSeen: new Date()
           }
           return [...prev, newUser]
         }
@@ -508,11 +437,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
 
     const handleUserLeft = (email: string) => {
       setActiveCollaborators(prev => prev.filter(e => e !== email))
-      setCursors(prev => {
-        const newCursors = new Map(prev)
-        newCursors.delete(email)
-        return newCursors
-      })
       setUsers(prev => prev.map(user => 
         user.email === email ? { ...user, isOnline: false } : user
       ))
@@ -521,11 +445,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     const handleUserSignedOut = (email: string) => {
       console.log('👋 User signed out (removing completely):', email)
       setActiveCollaborators(prev => prev.filter(e => e !== email))
-      setCursors(prev => {
-        const newCursors = new Map(prev)
-        newCursors.delete(email)
-        return newCursors
-      })
       // Remove user completely from the list (not just mark offline)
       setUsers(prev => prev.filter(user => user.email !== email))
       
@@ -536,9 +455,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
       })
     }
 
-    const handleCursorMoved = (email: string, x: number, y: number) => {
-      setCursors(prev => new Map(prev).set(email, { x, y }))
-    }
+
 
     const handleReactionAdded = (reactionData: NoteReactionDto) => {
       console.log('🎯 Received ReactionAdded event:', reactionData)
@@ -594,23 +511,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
         return note
       }))
 
-      // Show floating reaction if it's not from the current user
-      if (reactionData.userEmail !== currentUser) {
-        const newFloatingReaction = {
-          id: `${Date.now()}-${reactionData.userEmail}`,
-          reaction: reactionData.reactionType,
-          userEmail: reactionData.userEmail,
-          x: Math.random() * 100 + 50, // Random position
-          y: Math.random() * 100 + 50
-        }
-        
-        setFloatingReactions(prev => [...prev, newFloatingReaction])
-        
-        // Remove floating reaction after animation
-        setTimeout(() => {
-          setFloatingReactions(prev => prev.filter(r => r.id !== newFloatingReaction.id))
-        }, 3000)
-      }
+
     }
 
     const handleReactionRemoved = (reactionId: string) => {
@@ -655,7 +556,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     signalRService.on('UserJoined', handleUserJoined)
     signalRService.on('UserLeft', handleUserLeft)
     signalRService.on('UserSignedOut', handleUserSignedOut)
-    signalRService.on('CursorMoved', handleCursorMoved)
     signalRService.on('ReactionAdded', handleReactionAdded)
     signalRService.on('ReactionRemoved', handleReactionRemoved)
     signalRService.on('UserReactionRemoved', handleUserReactionRemoved)
@@ -668,7 +568,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
       signalRService.off('UserJoined', handleUserJoined)
       signalRService.off('UserLeft', handleUserLeft)
       signalRService.off('UserSignedOut', handleUserSignedOut)
-      signalRService.off('CursorMoved', handleCursorMoved)
       signalRService.off('ReactionAdded', handleReactionAdded)
       signalRService.off('ReactionRemoved', handleReactionRemoved)
       signalRService.off('UserReactionRemoved', handleUserReactionRemoved)
@@ -715,8 +614,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
           displayName: userDto.displayName,
           noteCount: convertedNotes.filter(note => note.author === userDto.email).length,
           isOnline: userDto.isOnline,
-          lastSeen: new Date(userDto.lastSeen),
-          cursor: userDto.isOnline ? { x: 0, y: 0 } : undefined
+          lastSeen: new Date(userDto.lastSeen)
         }))
 
         // Ensure current user is always included in the users list
@@ -732,8 +630,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
             displayName: currentUser.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
             noteCount: currentUserNoteCount,
             isOnline: true, // Assume online since we're reconnecting
-            lastSeen: new Date(),
-            cursor: { x: 0, y: 0 }
+            lastSeen: new Date()
           }
           finalUsers = [...convertedUsers, currentUserEntry]
         }
@@ -834,22 +731,8 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
           y: prev.lastOffset.y + deltaY
         }
       }))
-    } else {
-      // Update cursor position for real-time collaboration
-      const container = containerRef.current
-      if (container) {
-        const containerRect = container.getBoundingClientRect()
-        // Convert screen coordinates to canvas coordinates
-        const canvasX = (clientX - containerRect.left - canvas.offset.x) / canvas.scale
-        const canvasY = (clientY - containerRect.top - canvas.offset.y) / canvas.scale
-        
-        // Only send updates if cursor is within canvas bounds
-        if (canvasX >= 0 && canvasX <= CANVAS_SIZE.width && canvasY >= 0 && canvasY <= CANVAS_SIZE.height) {
-          throttledCursorUpdate(canvasX, canvasY)
-        }
-      }
     }
-  }, [canvas.isPanning, canvas.panStart, canvas.lastOffset, canvas.offset, canvas.scale, throttledCursorUpdate])
+  }, [canvas.isPanning, canvas.panStart, canvas.lastOffset, canvas.offset, canvas.scale])
 
   const handleCanvasEnd = useCallback(() => {
     setCanvas(prev => ({ ...prev, isPanning: false }))
@@ -1217,35 +1100,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     }
   }, [canvas.isPanning, canvas.pinchStart, handleCanvasMove, handleCanvasEnd])
 
-  // Add cursor tracking for real-time collaboration
-  useEffect(() => {
-    const handleCanvasMouseMove = (e: MouseEvent) => {
-      // Only track cursor when not panning/dragging
-      if (!canvas.isPanning) {
-        const container = containerRef.current
-        if (container) {
-          const containerRect = container.getBoundingClientRect()
-          // Convert screen coordinates to canvas coordinates
-          const canvasX = (e.clientX - containerRect.left - canvas.offset.x) / canvas.scale
-          const canvasY = (e.clientY - containerRect.top - canvas.offset.y) / canvas.scale
-          
-          // Only send updates if cursor is within canvas bounds
-          if (canvasX >= 0 && canvasX <= CANVAS_SIZE.width && canvasY >= 0 && canvasY <= CANVAS_SIZE.height) {
-            throttledCursorUpdate(canvasX, canvasY)
-          }
-        }
-      }
-    }
 
-    const canvasElement = canvasRef.current
-    if (canvasElement && signalRService && isConnected) {
-      canvasElement.addEventListener('mousemove', handleCanvasMouseMove)
-      
-      return () => {
-        canvasElement.removeEventListener('mousemove', handleCanvasMouseMove)
-      }
-    }
-  }, [canvas.isPanning, canvas.offset, canvas.scale, signalRService, isConnected, throttledCursorUpdate])
 
   // Enhanced note creation with viewport consideration
   const createNote = async () => {
@@ -1268,6 +1123,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
       content: "New note", // Default content to prevent empty notes
       x: canvasX - 128, // Center the note
       y: canvasY - 64,
+      workspaceId: config.workspace.defaultWorkspaceId
     }
     
     console.log('🚀 Creating note with data:', noteData)
@@ -1422,7 +1278,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
           connected: isConnected,
           state: signalRService?.getState()
         })
-        await apiService.moveNote(id, { x, y })
+        await apiService.moveNote(id, { id, x, y })
         console.log('✅ Move sent via API successfully')
       }
 
@@ -2188,35 +2044,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
                 />
               ))}
 
-              {/* Collaborative Cursors - Limited for performance */}
-              {visibleOnlineUsers.map((user) => {
-                const userColor = getUserColorHex(user.email, highlightedUsers.includes(user.email))
-                const displayName = getDisplayName(user.email)
-                return (
-                  <div
-                    key={user.email}
-                    className="absolute pointer-events-none z-50"
-                    style={{
-                      left: user.cursor!.x,
-                      top: user.cursor!.y,
-                      transform: 'translate(-2px, -2px)',
-                    }}
-                  >
-                    <div className="flex items-center gap-2">
-                      <div 
-                        className="w-4 h-4 rounded-full border-2 border-white shadow-lg" 
-                        style={{ backgroundColor: userColor }}
-                      />
-                      <div 
-                        className="text-white px-2 py-1 rounded text-xs font-medium whitespace-nowrap"
-                        style={{ backgroundColor: userColor }}
-                      >
-                        {displayName}
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
+
             </div>
 
             {/* Canvas Controls - Always visible and properly positioned */}

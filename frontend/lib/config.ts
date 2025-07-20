@@ -27,7 +27,6 @@ export const config = {
     debounceDelay: 300,
     throttleDelay: 100,
     maxVisibleNotes: 100,
-    cursorUpdateInterval: 250, // Increased from 100ms to reduce log noise
   },
 } as const;
 

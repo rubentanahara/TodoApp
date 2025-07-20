@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Docker Helper Script for Collaborative Notes App
-# Usage: ./docker-helper.sh [command] [environment]
+# Usage: ./docker-helper.sh [command]
 
 set -e
 
@@ -33,7 +33,7 @@ error() {
 usage() {
     echo "Docker Helper for Collaborative Notes App"
     echo ""
-    echo "Usage: ./docker-helper.sh [command] [environment]"
+    echo "Usage: ./docker-helper.sh [command]"
     echo ""
     echo "Commands:"
     echo "  up          Start services"
@@ -42,52 +42,27 @@ usage() {
     echo "  logs        Show logs"
     echo "  clean       Clean up containers, volumes, and images"
     echo "  status      Show status of services"
-    echo "  shell       Open shell in running container"
+    echo "  shell       Open shell in running API container"
     echo "  db          Connect to database"
-    echo ""
-    echo "Environments:"
-    echo "  dev         Development environment (default)"
-    echo "  prod        Production environment"
+    echo "  build       Build the services"
     echo ""
     echo "Examples:"
-    echo "  ./docker-helper.sh up dev          # Start development environment"
-    echo "  ./docker-helper.sh logs prod       # Show production logs"
-    echo "  ./docker-helper.sh clean dev       # Clean development environment"
-    echo "  ./docker-helper.sh db dev          # Connect to development database"
+    echo "  ./docker-helper.sh up           # Start development environment"
+    echo "  ./docker-helper.sh logs         # Show logs"
+    echo "  ./docker-helper.sh clean        # Clean development environment"
+    echo "  ./docker-helper.sh db           # Connect to development database"
 }
 
-# Set environment
-set_environment() {
-    case "$1" in
-        "dev"|"development"|"")
-            PROFILE="dev"
-            DB_SERVICE="postgres-dev"
-            API_SERVICE="notes-api-dev"
-            DB_NAME="NotesAppDev"
-            DB_PORT="5432"
-            ;;
-        "prod"|"production")
-            PROFILE="prod"
-            DB_SERVICE="postgres-prod"
-            API_SERVICE="notes-api-prod"
-            DB_NAME="NotesApp"
-            DB_PORT="5433"
-            ;;
-        *)
-            error "Invalid environment: $1"
-            usage
-            exit 1
-            ;;
-    esac
-    
-    log "Using ${PROFILE} environment"
-}
+# Set service names
+DB_SERVICE="postgres"
+API_SERVICE="notes-api"
+DB_NAME="NotesAppDev"
 
 # Commands
 cmd_up() {
-    log "Starting ${PROFILE} environment..."
-    docker-compose --profile ${PROFILE} up -d
-    success "${PROFILE} environment started!"
+    log "Starting development environment..."
+    docker-compose up -d --build
+    success "Development environment started!"
     
     log "Waiting for services to be healthy..."
     sleep 5
@@ -95,52 +70,58 @@ cmd_up() {
 }
 
 cmd_down() {
-    log "Stopping ${PROFILE} environment..."
-    docker-compose --profile ${PROFILE} down
-    success "${PROFILE} environment stopped!"
+    log "Stopping development environment..."
+    docker-compose down
+    success "Development environment stopped!"
 }
 
 cmd_restart() {
-    log "Restarting ${PROFILE} environment..."
-    docker-compose --profile ${PROFILE} restart
-    success "${PROFILE} environment restarted!"
+    log "Restarting development environment..."
+    docker-compose restart
+    success "Development environment restarted!"
 }
 
 cmd_logs() {
-    log "Showing logs for ${PROFILE} environment..."
-    docker-compose --profile ${PROFILE} logs -f --tail=100
+    log "Showing logs for development environment..."
+    docker-compose logs -f --tail=100
 }
 
 cmd_clean() {
-    warning "This will remove all containers, volumes, and images for ${PROFILE} environment!"
+    warning "This will remove all containers, volumes, and images for the development environment!"
     read -p "Are you sure? (y/N): " -n 1 -r
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        log "Cleaning ${PROFILE} environment..."
-        docker-compose --profile ${PROFILE} down -v --rmi all
-        success "${PROFILE} environment cleaned!"
+        log "Cleaning development environment..."
+        docker-compose down -v --rmi all
+        success "Development environment cleaned!"
     else
         log "Clean cancelled"
     fi
 }
 
 cmd_status() {
-    log "Status of ${PROFILE} environment:"
-    docker-compose --profile ${PROFILE} ps
+    log "Status of development environment:"
+    docker-compose ps
     echo ""
     log "Health status:"
-    docker-compose --profile ${PROFILE} exec ${DB_SERVICE} pg_isready -U postgres -d ${DB_NAME} 2>/dev/null && success "Database is healthy" || warning "Database is not ready"
-    docker-compose --profile ${PROFILE} exec ${API_SERVICE} curl -f http://localhost/health 2>/dev/null > /dev/null && success "API is healthy" || warning "API is not ready"
+    docker-compose exec ${DB_SERVICE} pg_isready -U postgres -d ${DB_NAME} 2>/dev/null && success "Database is healthy" || warning "Database is not ready"
+    curl -f http://localhost:8080/health 2>/dev/null > /dev/null && success "API is healthy" || warning "API is not ready"
 }
 
 cmd_shell() {
     log "Opening shell in ${API_SERVICE}..."
-    docker-compose --profile ${PROFILE} exec ${API_SERVICE} /bin/bash
+    docker-compose exec ${API_SERVICE} /bin/bash
 }
 
 cmd_db() {
     log "Connecting to ${DB_SERVICE} database..."
-    docker-compose --profile ${PROFILE} exec ${DB_SERVICE} psql -U postgres -d ${DB_NAME}
+    docker-compose exec ${DB_SERVICE} psql -U postgres -d ${DB_NAME}
+}
+
+cmd_build() {
+    log "Building development environment..."
+    docker-compose build --no-cache
+    success "Build completed!"
 }
 
 # Main logic
@@ -150,9 +131,6 @@ if [ $# -eq 0 ]; then
 fi
 
 COMMAND=$1
-ENVIRONMENT=${2:-"dev"}
-
-set_environment "$ENVIRONMENT"
 
 case "$COMMAND" in
     "up")
@@ -178,6 +156,9 @@ case "$COMMAND" in
         ;;
     "db")
         cmd_db
+        ;;
+    "build")
+        cmd_build
         ;;
     "help"|"-h"|"--help")
         usage

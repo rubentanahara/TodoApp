@@ -1,7 +1,6 @@
 services:
   # Development API Service
-  notes-api-dev:
-    profiles: ["dev", "development"]
+  notes-api:
     build:
       context: .
       dockerfile: Dockerfile
@@ -12,7 +11,7 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:80
-      - ConnectionStrings__DefaultConnection=Host=postgres-dev;Database=NotesAppDev;Username=postgres;Password=YourPassword123!;
+      - ConnectionStrings__DefaultConnection=Host=postgres;Database=NotesAppDev;Username=postgres;Password=YourPassword123!;Port=5432;
       - JWT__SecretKey=development-secret-key-not-for-production-use-only-make-it-very-long-and-secure
       - JWT__Issuer=NotesApp
       - JWT__Audience=NotesApp
@@ -21,15 +20,15 @@ services:
       - Cors__AllowedOrigins__1=https://localhost:3000
       - Cors__AllowedOrigins__2=http://localhost:3001
     depends_on:
-      postgres-dev:
+      postgres:
         condition: service_healthy
     volumes:
       - .:/app
-      - app_logs_dev:/app/logs
-      - app_uploads_dev:/app/wwwroot/uploads
+      - app_logs:/app/logs
+      - app_uploads:/app/wwwroot/uploads
     working_dir: /app
     networks:
-      - notes-network-dev
+      - notes-network
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost/health"]
@@ -39,52 +38,8 @@ services:
       start_period: 10s
     command: ["dotnet", "watch", "run", "--project", "NotesApp.csproj", "--urls", "http://+:80"]
 
-  # Production API Service
-  notes-api-prod:
-    profiles: ["prod", "production"]
-    build:
-      context: .
-      dockerfile: Dockerfile
-    ports:
-      - "8080:80"
-      - "8081:443"
-    environment:
-      - ASPNETCORE_ENVIRONMENT=Production
-      - ASPNETCORE_URLS=http://+:80
-      - ConnectionStrings__DefaultConnection=Host=postgres-prod;Database=NotesApp;Username=postgres;Password=YourPassword123!;
-      - JWT__SecretKey=${JWT_SECRET:-your-very-long-and-secure-secret-key-for-production-use}
-      - JWT__Issuer=NotesApp
-      - JWT__Audience=NotesApp
-      - JWT__ExpiryHours=24
-      - Cors__AllowedOrigins__0=http://localhost:3000
-      - Cors__AllowedOrigins__1=https://localhost:3000
-    depends_on:
-      postgres-prod:
-        condition: service_healthy
-    volumes:
-      - app_logs_prod:/app/logs
-      - app_uploads_prod:/app/wwwroot/uploads
-    networks:
-      - notes-network-prod
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 512M
-        reservations:
-          cpus: '0.5'
-          memory: 256M
-
   # Development Database
-  postgres-dev:
-    profiles: ["dev", "development"]
+  postgres:
     image: postgres:16-alpine
     environment:
       - POSTGRES_DB=NotesAppDev
@@ -93,9 +48,10 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data_dev:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts:/docker-entrypoint-initdb.d
     networks:
-      - notes-network-dev
+      - notes-network
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d NotesAppDev"]
@@ -104,61 +60,15 @@ services:
       retries: 5
       start_period: 40s
 
-  # Production Database
-  postgres-prod:
-    profiles: ["prod", "production"]
-    image: postgres:16-alpine
-    environment:
-      - POSTGRES_DB=NotesApp
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=YourPassword123!
-    ports:
-      - "5432:5432"  # Different port to avoid conflicts
-    volumes:
-      - postgres_data_prod:/var/lib/postgresql/data
-    networks:
-      - notes-network-prod
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d NotesApp"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 40s
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 512M
-        reservations:
-          cpus: '0.5'
-          memory: 256M
-
 volumes:
-  # Development volumes
-  postgres_data_dev:
+  postgres_data:
     driver: local
-  app_logs_dev:
+  app_logs:
     driver: local
-  app_uploads_dev:
-    driver: local
-  
-  # Production volumes
-  postgres_data_prod:
-    driver: local
-  app_logs_prod:
-    driver: local
-  app_uploads_prod:
+  app_uploads:
     driver: local
 
 networks:
-  notes-network-dev:
+  notes-network:
     driver: bridge
-    name: notes-dev-network
-  
-  notes-network-prod:
-    driver: bridge
-    name: notes-prod-network
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16 
+    name: notes-dev-network 

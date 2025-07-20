@@ -11,8 +11,6 @@ interface User {
   email: string
   noteCount: number
   isOnline: boolean
-  cursor?: { x: number; y: number }
-  activeNoteId?: string
 }
 
 interface UserSidebarProps {

@@ -1,3 +1,5 @@
+import { ReactNode } from 'react';
+
 // API Response wrapper
 export interface ApiResponse<T> {
   data: T;
@@ -6,13 +8,51 @@ export interface ApiResponse<T> {
   timestamp: string;
 }
 
-// User-related DTOs
+// Basic DTOs from backend
+export interface NoteDto {
+  id: string;
+  content: string;
+  authorEmail: string;
+  workspaceId: string;
+  x: number;
+  y: number;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+  imageUrls?: string[];
+  reactions?: NoteReaction[];
+}
+
+export interface NoteCreateDto {
+  content: string;
+  workspaceId: string;
+  x: number;
+  y: number;
+}
+
+export interface NoteUpdateDto {
+  content: string;
+  version: number;
+  imageUrls?: string[];
+}
+
+export interface NotePositionUpdateDto {
+  id: string;
+  x: number;
+  y: number;
+}
+
+export interface DeleteImageDto {
+  noteId: string;
+  imageUrl: string;
+}
+
 export interface UserDto {
   id: string;
   email: string;
   displayName: string;
-  lastSeen: string;
   isOnline: boolean;
+  lastSeen: string;
 }
 
 export interface LoginDto {
@@ -23,42 +63,11 @@ export interface LoginDto {
 export interface AuthResponseDto {
   token: string;
   user: UserDto;
-  expiresAt: string;
 }
 
-export interface PresenceUpdateDto {
-  isOnline: boolean;
-}
-
-// Note-related DTOs
-export interface NoteDto {
-  id: string;
-  content: string;
-  authorEmail: string;
-  x: number;
-  y: number;
-  workspaceId: string;
-  createdAt: string;
-  updatedAt: string;
-  version: number;
-  imageUrls: string[]; // Add image support
-  reactions: NoteReactionSummaryDto[]; // Add reaction support
-}
-
-export interface NoteCreateDto {
-  content: string;
-  x: number;
-  y: number;
-}
-
-export interface NoteUpdateDto {
-  content?: string;
-  x?: number;
-  y?: number;
-  version: number;
-}
-
-export interface NotePositionUpdateDto {
+export interface NoteReactionCreateDto {
+  noteId: string;
+  reactionType: string;
   x: number;
   y: number;
 }
@@ -74,29 +83,19 @@ export interface NoteReactionDto {
   updatedAt: string;
 }
 
-export interface NoteReactionCreateDto {
-  noteId: string;
-  reactionType: string;
+export interface PresenceUpdateDto {
+  userEmail: string;
+  workspaceId: string;
+  isOnline: boolean;
+  lastSeen: string;
 }
 
-export interface NoteReactionUpdateDto {
-  reactionType: string;
-}
-
-export interface NoteReactionSummaryDto {
+// Reaction aggregation types (for frontend display)
+export interface NoteReaction {
   reactionType: string;
   count: number;
   users: string[];
   hasCurrentUser: boolean;
-}
-
-// SignalR-related types
-export interface UserCursor {
-  userEmail: string;
-  workspaceId: string;
-  x: number;
-  y: number;
-  lastUpdated: string;
 }
 
 // Frontend-specific types
@@ -110,10 +109,10 @@ export interface Note {
   y: number;
   workspaceId: string;
   version: number;
-  lastModified?: Date;
-  collaborators?: string[];
-  imageUrls: string[]; // Add image support
-  reactions: NoteReactionSummaryDto[]; // Add reaction support
+  lastModified: Date;
+  collaborators: string[];
+  imageUrls: string[];
+  reactions: NoteReaction[];
 }
 
 export interface User {
@@ -123,8 +122,6 @@ export interface User {
   noteCount: number;
   isOnline: boolean;
   lastSeen: Date;
-  cursor?: { x: number; y: number };
-  activeNoteId?: string;
 }
 
 export interface AuthState {
@@ -134,9 +131,9 @@ export interface AuthState {
   isLoading: boolean;
 }
 
-// API Error types
 export interface ApiError {
   message: string;
+  status?: number;
   code?: string;
   details?: any;
 }
@@ -146,7 +143,6 @@ export interface SignalREvents {
   // Server to client events
   UserJoined: (email: string) => void;
   UserLeft: (email: string) => void;
-  CursorMoved: (email: string, x: number, y: number) => void;
   NoteCreated: (note: NoteDto) => void;
   NoteUpdated: (note: NoteDto) => void;
   NoteMoved: (note: NoteDto) => void;
@@ -161,7 +157,6 @@ export interface SignalRMethods {
   // Client to server methods
   JoinWorkspace: (workspaceId: string) => Promise<void>;
   LeaveWorkspace: (workspaceId: string) => Promise<void>;
-  UpdateCursor: (workspaceId: string, x: number, y: number) => Promise<void>;
   CreateNote: (workspaceId: string, noteData: NoteCreateDto) => Promise<void>;
   UpdateNote: (noteId: string, noteData: NoteUpdateDto) => Promise<void>;
   MoveNote: (noteId: string, x: number, y: number) => Promise<void>;

@@ -31,7 +31,7 @@ export function SignInScreen({ onSignIn }: SignInScreenProps) {
     try {
       const loginData: LoginDto = {
         email: email.trim(),
-        displayName: displayName.trim() || undefined,
+        ...(displayName.trim() && { displayName: displayName.trim() }),
       }
 
       await login(loginData)
@@ -122,7 +122,7 @@ export function SignInScreen({ onSignIn }: SignInScreenProps) {
                 maxLength={100}
               />
               <p className="text-xs text-muted-foreground">
-                If not provided, we'll use your email as the display name
+                If not provided, we'll auto-generate from your email (e.g., "user" from "user@example.com")
               </p>
             </div>
 

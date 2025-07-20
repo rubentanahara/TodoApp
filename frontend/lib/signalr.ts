@@ -191,10 +191,6 @@ class SignalRService {
       this.emit('UserLeft', email);
     });
 
-    this.connection.on('CursorMoved', (email: string, x: number, y: number) => {
-      this.emit('CursorMoved', email, x, y);
-    });
-
     this.connection.on('NoteCreated', (note: NoteDto) => {
       this.emit('NoteCreated', note);
     });
@@ -375,19 +371,6 @@ class SignalRService {
       if (this.currentWorkspace === workspaceId) {
         this.currentWorkspace = null;
       }
-    }
-  }
-
-  async updateCursor(workspaceId: string, x: number, y: number): Promise<void> {
-    if (!this.connection || this.connection.state !== HubConnectionState.Connected) {
-      return; // Silently fail for cursor updates
-    }
-
-    try {
-      await this.connection.invoke('UpdateCursor', workspaceId, x, y);
-    } catch (error) {
-      console.error('Error updating cursor:', error);
-      // Don't throw for cursor updates to avoid disrupting user experience
     }
   }
 
