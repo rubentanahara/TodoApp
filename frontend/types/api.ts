@@ -86,9 +86,9 @@ export interface NoteReactionSummaryDto {
 }
 
 export interface NoteMoveEventDto {
-  Note: NoteDto;
-  MovedBy: string;
-  MovedAt: string;
+  note: NoteDto;
+  movedBy: string;
+  movedAt: string;
 }
 
 export interface PresenceUpdateDto {

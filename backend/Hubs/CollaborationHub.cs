@@ -172,6 +172,9 @@ public class CollaborationHub : Hub
                     MovedAt = DateTime.UtcNow
                 };
                 
+                _logger.LogInformation("Broadcasting NoteMoved event: NoteId={NoteId}, MovedBy={MovedBy}, WorkspaceId={WorkspaceId}", 
+                    result.Data.Id, email, workspaceId);
+                
                 await Clients.Group(workspaceId).SendAsync("NoteMoved", moveEventData);
                 
                 _logger.LogInformation("Note {NoteId} moved via SignalR by {Email} in workspace {WorkspaceId} to position ({X}, {Y})", 

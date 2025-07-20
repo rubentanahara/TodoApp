@@ -328,6 +328,9 @@ public class NotesController : ControllerBase
                     MovedAt = DateTime.UtcNow
                 };
                 
+                _logger.LogInformation("Broadcasting NoteMoved event via REST: NoteId={NoteId}, MovedBy={MovedBy}, WorkspaceId={WorkspaceId}", 
+                    result.Data.Id, email, workspaceId);
+                
                 await _hubContext.Clients.Group(workspaceId).SendAsync("NoteMoved", moveEventData);
                 
                 _logger.LogInformation("Note {NoteId} moved via REST API by {Email} in workspace {WorkspaceId} to position ({X}, {Y}) - broadcast sent", 

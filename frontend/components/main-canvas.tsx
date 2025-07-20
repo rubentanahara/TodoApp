@@ -236,7 +236,10 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
           lastModified: new Date(noteDto.updatedAt),
           collaborators: [noteDto.authorEmail],
           imageUrls: noteDto.imageUrls || [],
-          reactions: (noteDto.reactions || [])
+          reactions: (noteDto.reactions || []).map(reaction => ({
+            ...reaction,
+            hasCurrentUser: reaction.users.includes(currentUser)
+          }))
         }))
 
         const convertedUsers: User[] = usersData.map(userDto => ({
@@ -284,6 +287,28 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
 
     loadData()
   }, [currentUser, toast])
+
+  // Join workspace when SignalR connects
+  useEffect(() => {
+    const joinWorkspaceOnConnect = async () => {
+      if (signalRService && isConnected) {
+        try {
+          await signalRService.joinWorkspace(config.workspace.defaultWorkspaceId)
+          console.log('✅ Successfully joined workspace:', config.workspace.defaultWorkspaceId)
+        } catch (error) {
+          console.error('❌ Failed to join workspace:', error)
+          toast({
+            title: "Connection Warning",
+            description: "Failed to join workspace. Real-time features may not work properly.",
+            variant: "destructive",
+            duration: 5000,
+          })
+        }
+      }
+    }
+
+    joinWorkspaceOnConnect()
+  }, [signalRService, isConnected, toast])
 
   // SignalR event handlers
   useEffect(() => {
@@ -337,11 +362,34 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
       ))
     }
 
-    const handleNoteMoved = (moveEventData: NoteMoveEventDto) => {
-      // Handle both old format (direct NoteDto) and new format (with moveEventData)
-      const noteDto = moveEventData.Note || moveEventData // Backwards compatibility
-      const movedBy = moveEventData.MovedBy || null // Who moved the note (can be null)
-      const movedAt = moveEventData.MovedAt ? new Date(moveEventData.MovedAt) : new Date()
+    const handleNoteMoved = (moveEventData: NoteMoveEventDto | NoteDto) => {
+      console.log('🔍 Received NoteMoved event:', moveEventData);
+      
+      // Handle both old format (direct NoteDto) and new format (NoteMoveEventDto)
+      let noteDto: NoteDto;
+      let movedBy: string | null = null;
+      let movedAt: Date = new Date();
+      
+      // Check if it's the new format (has note, movedBy properties)
+      if ('note' in moveEventData && 'movedBy' in moveEventData) {
+        // New format: NoteMoveEventDto with camelCase properties
+        console.log('📦 Using new NoteMoveEventDto format (camelCase)');
+        noteDto = moveEventData.note;
+        movedBy = moveEventData.movedBy;
+        movedAt = moveEventData.movedAt ? new Date(moveEventData.movedAt) : new Date();
+      } else if ('id' in moveEventData && 'authorEmail' in moveEventData) {
+        // Old format: Direct NoteDto
+        console.log('📦 Using old NoteDto format');
+        noteDto = moveEventData as NoteDto;
+        movedBy = null; // Unknown who moved it in old format
+      } else {
+        console.error('❌ Invalid move event data received:', {
+          received: moveEventData,
+          type: typeof moveEventData,
+          keys: moveEventData ? Object.keys(moveEventData) : 'null/undefined'
+        });
+        return;
+      }
       
       const isMyNote = noteDto.authorEmail === currentUser
       const wasUserInitiated = userInitiatedMoves.current.has(noteDto.id)
@@ -1365,7 +1413,10 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
          lastModified: new Date(noteDto.updatedAt),
          collaborators: [noteDto.authorEmail],
          imageUrls: noteDto.imageUrls || [],
-         reactions: [] // Add missing reactions property
+         reactions: (noteDto.reactions || []).map(reaction => ({
+           ...reaction,
+           hasCurrentUser: reaction.users.includes(currentUser)
+         }))
        }))
        setNotes(updatedNotes)
       
