@@ -70,7 +70,10 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
 
   // Update position to follow mouse cursor exactly
   const updatePositionToMouse = useCallback((clientX: number, clientY: number) => {
-    if (!isDragging) return
+    
+    if (!isDragging) {
+      return
+    }
     
     // Get canvas element and its transform container
     const canvas = cardRef.current?.closest('[data-canvas]')
@@ -230,22 +233,31 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
   }, [onImageUpload, note.id])
 
   const handleStart = useCallback((clientX: number, clientY: number, e: any) => {
-    if (!canDrag || isEditing) return
+    if (!canDrag || isEditing) {
+      return
+    }
     
     // Check if the event target is part of the reaction picker or other interactive elements
     const target = e.target as HTMLElement
+    
     const isReactionPicker = target.closest('[data-reaction-picker]') !== null
-    const isButton = target.closest('button') !== null
-    const isInput = target.closest('input, textarea') !== null
+    const isButton = target.tagName === 'BUTTON' || target.closest('button') !== null
+    const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.closest('input, textarea') !== null
     const isImage = target.tagName === 'IMG'
     const isImageContainer = target.closest('.relative.group.cursor-pointer') !== null
-    const isDeleteButton = target.closest('button')?.querySelector('.w-3.h-3') !== null // Delete button has small icon
+    // Fix: Only block if we're actually clicking ON a delete button, not just if one exists
+    const isDeleteButton = target.tagName === 'BUTTON' && target.querySelector('.w-3.h-3') !== null
+    const isDragHandle = target.closest('[data-drag-handle]') !== null
     
-    if (isReactionPicker || (isButton && !target.closest('[data-drag-handle]')) || isInput || isImage || isImageContainer || isDeleteButton) {
+    // Only block dragging if we're actually clicking on interactive elements
+    if (isReactionPicker || isInput || isImage || isImageContainer || isDeleteButton) {
       return // Don't start dragging if clicking on interactive elements or images
     }
     
-    e.stopPropagation()
+    // Allow dragging on buttons that are drag handles, but block other buttons
+    if (isButton && !isDragHandle) {
+      return
+    }
     
     // Calculate initial offset from mouse to note's current position in canvas coordinates
     const canvas = cardRef.current?.closest('[data-canvas]')
@@ -284,10 +296,12 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
       const canvasMouseY = (containerMouseY - translateY) / scale
       
       // Calculate offset from mouse to note position
-      setMouseOffset({
+      const calculatedOffset = {
         x: canvasMouseX - note.x,
         y: canvasMouseY - note.y
-      })
+      }
+      
+      setMouseOffset(calculatedOffset)
     } else {
       // Fallback: assume mouse is at center of note
       setMouseOffset({ x: 128, y: 64 })
@@ -295,7 +309,7 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
     
     setIsDragging(true)
     setCurrentPosition({ x: note.x, y: note.y })
-  }, [canDrag, isEditing, note.x, note.y])
+  }, [canDrag, isEditing, note.x, note.y, note.id])
 
   const handleMove = useCallback((clientX: number, clientY: number) => {
     updatePositionToMouse(clientX, clientY)
@@ -310,10 +324,14 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
   }, [isDragging])
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    // Always prevent bubbling to canvas for mouse events on note cards
+    e.stopPropagation()
     handleStart(e.clientX, e.clientY, e)
   }, [handleStart])
 
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    // Always prevent bubbling to canvas for touch events on note cards
+    e.stopPropagation()
     if (e.touches.length === 1) {
       const touch = e.touches[0]
       handleStart(touch.clientX, touch.clientY, e)
@@ -372,12 +390,10 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
     
     try {
       const imageUrl = note.imageUrls[imageIndex]
-      console.log('Deleting image:', { imageIndex, imageUrl })
       
       // Use parent callback if provided, otherwise make direct API call
       if (onImageDelete) {
         await onImageDelete(note.id, imageUrl)
-        console.log('Image deleted successfully via parent callback')
       } else {
         // Fallback to direct API call
         const { config } = await import('@/lib/config')
@@ -396,7 +412,6 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
           throw new Error(errorData.error || 'Failed to delete image')
         }
         
-        console.log('Image deleted successfully via direct API call')
       }
       
     } catch (error: any) {
@@ -406,6 +421,7 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
   }, [isOwner, note.id, note.imageUrls, onImageDelete])
 
   useEffect(() => {
+    
     if (!isDragging) return
 
     const handleMouseMove = (e: MouseEvent) => {
@@ -454,6 +470,7 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
   return (
     <Card
       ref={cardRef}
+      data-note-card="true"
       className={`absolute w-60 sm:w-72 min-h-32 sm:min-h-36 p-3 sm:p-4 select-none ${
         isHighlighted 
           ? `ring-2 ${userColor.ring} shadow-xl` 
