@@ -141,8 +141,8 @@ export function ImagePreviewModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-5xl w-full h-[90vh] p-0 overflow-hidden">
-        <DialogHeader className="p-4 pb-2 border-b">
+      <DialogContent className="max-w-5xl w-full h-[90vh] p-0 overflow-hidden flex flex-col">
+        <DialogHeader className="p-4 pb-2 border-b flex-shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <DialogTitle className="text-lg font-semibold">
@@ -160,14 +160,6 @@ export function ImagePreviewModal({
                   {currentIndex + 1} of {images.length}
                 </Badge>
               )}
-              {/* <Button
-                variant="ghost"
-                size="sm"
-                onClick={onClose}
-                className="h-8 w-8 p-0"
-              >
-                <X className="w-4 h-4" />
-              </Button> */}
             </div>
           </div>
           
@@ -178,8 +170,7 @@ export function ImagePreviewModal({
           )}
         </DialogHeader>
 
-        <div className="flex-1 relative flex items-center justify-center bg-black/5 dark:bg-black/20">
-          {/* Navigation buttons */}
+        <div className="flex-1 relative flex items-center justify-center bg-black/5 dark:bg-black/20 min-h-0 overflow-hidden">{/* Navigation buttons */}
           {hasMultipleImages && (
             <>
               <Button
@@ -202,7 +193,7 @@ export function ImagePreviewModal({
             </>
           )}
 
-          {/* Image container */}
+          {/* Image container with maximum size constraints */}
           <div className="relative w-full h-full flex items-center justify-center p-4">
             {isLoading && (
               <div className="absolute inset-0 flex items-center justify-center">
@@ -213,12 +204,18 @@ export function ImagePreviewModal({
             <img
               src={currentImage}
               alt={`Preview ${currentIndex + 1}`}
-              className={`max-w-full max-h-full object-contain cursor-pointer transition-transform duration-300 ${
-                isZoomed ? 'scale-150' : 'scale-100'
+              className={`object-contain cursor-pointer transition-transform duration-300 ${
+                isZoomed ? 'scale-125' : 'scale-100'
               } ${isLoading ? 'opacity-0' : 'opacity-100'}`}
               onClick={toggleZoom}
               onLoad={handleImageLoad}
               onError={handleImageError}
+              style={{
+                maxHeight: '100%',
+                maxWidth: '100%',
+                height: 'auto',
+                width: 'auto'
+              }}
             />
           </div>
 
@@ -274,9 +271,9 @@ export function ImagePreviewModal({
           </div>
         </div>
 
-        {/* Thumbnail strip for multiple images */}
+        {/* Thumbnail strip for multiple images - always visible when multiple images exist */}
         {hasMultipleImages && (
-          <div className="border-t p-4">
+          <div className="border-t p-4 flex-shrink-0 bg-background">
             <div className="flex gap-2 overflow-x-auto pb-2">
               {images.map((image, index) => (
                 <button
