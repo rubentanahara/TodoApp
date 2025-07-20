@@ -1325,47 +1325,9 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     try {
       // Send delete via SignalR if available
       if (signalRService && isConnected) {
-        // TODO: Add SignalR method for image deletion when backend supports it
-        // await signalRService.deleteImage(noteId, imageUrl)
-        
-        // For now, use API call and then refresh
-        const response = await fetch(`${config.api.baseUrl}/api/notes/${noteId}/images`, {
-          method: 'DELETE',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem(config.auth.tokenKey)}`
-          },
-          body: JSON.stringify({ imageUrl })
-        })
-
-        if (!response.ok) {
-          const errorData = await response.json()
-          throw new Error(errorData.error || 'Failed to delete image')
-        }
-        
-        // Refresh the note data to get updated images
-        const updatedNotesData = await apiService.getNotes(config.workspace.defaultWorkspaceId)
-        const updatedNotes: Note[] = updatedNotesData.map(noteDto => ({
-          id: noteDto.id,
-          content: noteDto.content,
-          author: noteDto.authorEmail,
-          createdAt: new Date(noteDto.createdAt),
-          updatedAt: new Date(noteDto.updatedAt),
-          x: noteDto.x,
-          y: noteDto.y,
-          workspaceId: noteDto.workspaceId,
-          version: noteDto.version,
-          lastModified: new Date(noteDto.updatedAt),
-          collaborators: [noteDto.authorEmail],
-          imageUrls: noteDto.imageUrls || [],
-          reactions: (noteDto.reactions || []).map(reaction => ({
-            ...reaction,
-            hasCurrentUser: reaction.users.includes(currentUser)
-          }))
-        }))
-        setNotes(updatedNotes)
+        await signalRService.deleteImage(config.workspace.defaultWorkspaceId, noteId, imageUrl)
       } else {
-        
+        // Fallback to direct API call
         const response = await fetch(`${config.api.baseUrl}/api/notes/${noteId}/images`, {
           method: 'DELETE',
           headers: {

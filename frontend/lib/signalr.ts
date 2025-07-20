@@ -465,6 +465,19 @@ class SignalRService {
     }
   }
 
+  async deleteImage(workspaceId: string, noteId: string, imageUrl: string): Promise<void> {
+    if (!this.connection || this.connection.state !== HubConnectionState.Connected) {
+      throw new Error('SignalR not connected');
+    }
+
+    try {
+      await this.connection.invoke('DeleteImage', workspaceId, noteId, imageUrl);
+    } catch (error) {
+      console.error('Error deleting image via SignalR:', error);
+      throw error;
+    }
+  }
+
   async signOut(workspaceId: string): Promise<void> {
     console.log(`🚪 Attempting to sign out from workspace: ${workspaceId}`);
     

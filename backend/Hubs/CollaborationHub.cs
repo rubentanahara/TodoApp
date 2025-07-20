@@ -363,6 +363,56 @@ public class CollaborationHub : Hub
         }
     }
 
+    public async Task DeleteImage(string workspaceId, string noteId, string imageUrl)
+    {
+        var email = Context.User?.FindFirst(ClaimTypes.Email)?.Value;
+        
+        if (string.IsNullOrEmpty(email))
+        {
+            await Clients.Caller.SendAsync("Error", "User not authenticated");
+            return;
+        }
+
+        // Parse string to Guid
+        if (!Guid.TryParse(noteId, out var noteGuid))
+        {
+            await Clients.Caller.SendAsync("Error", "Invalid note ID format");
+            return;
+        }
+
+        try
+        {
+            var result = await _noteService.RemoveImageFromNoteAsync(noteGuid, imageUrl, email);
+            
+            if (result.Success)
+            {
+                // Get the updated note to broadcast the changes
+                var updatedNote = await _noteService.GetNoteAsync(noteGuid);
+                if (updatedNote.Success)
+                {
+                    // Send to all users in the workspace
+                    await Clients.Group(workspaceId).SendAsync("NoteUpdated", updatedNote.Data);
+                    
+                    _logger.LogInformation("Image deleted via SignalR by {Email} from note {NoteId} in workspace {WorkspaceId}", 
+                        email, noteId, workspaceId);
+                }
+                else
+                {
+                    await Clients.Caller.SendAsync("Error", "Failed to retrieve updated note");
+                }
+            }
+            else
+            {
+                await Clients.Caller.SendAsync("Error", result.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting image via SignalR");
+            await Clients.Caller.SendAsync("Error", "Failed to delete image");
+        }
+    }
+
     public async Task SignOut(string workspaceId)
     {
         var email = Context.User?.FindFirst(ClaimTypes.Email)?.Value;
