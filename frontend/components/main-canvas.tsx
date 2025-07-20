@@ -253,7 +253,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
         const currentUserExists = convertedUsers.some(user => user.email === currentUser)
         
         if (!currentUserExists) {
-          console.log('Adding current user to users list:', currentUser)
           const currentUserNoteCount = convertedNotes.filter(note => note.author === currentUser).length
           const currentUserEntry: User = {
             id: `current-user-${Date.now()}`,
@@ -291,14 +290,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     if (!signalRService || !isConnected) return
 
     const handleNoteCreated = (noteDto: NoteDto) => {
-      console.log('📝 Received NoteCreated event:', {
-        id: noteDto.id,
-        content: noteDto.content,
-        author: noteDto.authorEmail,
-        position: { x: noteDto.x, y: noteDto.y },
-        currentUser: currentUser
-      })
-      
       const newNote: Note = {
         id: noteDto.id,
         content: noteDto.content,
@@ -318,7 +309,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
         }))
       }
       
-      console.log('📝 Adding note to local state:', newNote)
       setNotes(prev => [...prev, newNote])
       
       // Only show toast if it's not the current user creating the note
@@ -331,8 +321,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     }
 
     const handleNoteUpdated = (noteDto: NoteDto) => {
-      console.log('📝 Received NoteUpdated event:', noteDto)
-      
       setNotes(prev => prev.map(note => 
         note.id === noteDto.id ? {
           ...note,
@@ -350,23 +338,9 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     }
 
     const handleNoteMoved = (noteDto: NoteDto) => {
-      console.log('📍 Received NoteMoved event:', {
-        noteId: noteDto.id,
-        authorEmail: noteDto.authorEmail,
-        newPosition: { x: noteDto.x, y: noteDto.y },
-        currentUser: currentUser
-      })
-      
       const isMyNote = noteDto.authorEmail === currentUser
       const previousNote = notes.find(n => n.id === noteDto.id)
       const wasUserInitiated = userInitiatedMoves.current.has(noteDto.id)
-      
-      console.log('📍 NoteMoved details:', {
-        isMyNote,
-        previousNote: previousNote ? { id: previousNote.id, x: previousNote.x, y: previousNote.y } : null,
-        wasUserInitiated,
-        userInitiatedMoves: Array.from(userInitiatedMoves.current)
-      })
       
       setNotes(prev => prev.map(note => 
         note.id === noteDto.id ? {
@@ -378,8 +352,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
           lastModified: new Date(noteDto.updatedAt)
         } : note
       ))
-
-      console.log('✅ Note position updated in local state')
 
       // Only show toast when someone ELSE moves YOUR note (not when you move your own note)
       if (isMyNote && previousNote && !wasUserInitiated) {
@@ -396,8 +368,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     }
 
     const handleUserJoined = (email: string) => {
-      console.log('👤 User joined workspace:', email)
-      
       // Don't add current user to active collaborators (they're not a collaborator to themselves)
       if (email !== currentUser) {
         setActiveCollaborators(prev => prev.includes(email) ? prev : [...prev, email])
@@ -443,7 +413,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     }
 
     const handleUserSignedOut = (email: string) => {
-      console.log('👋 User signed out (removing completely):', email)
       setActiveCollaborators(prev => prev.filter(e => e !== email))
       // Remove user completely from the list (not just mark offline)
       setUsers(prev => prev.filter(user => user.email !== email))
@@ -458,8 +427,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
 
 
     const handleReactionAdded = (reactionData: NoteReactionDto) => {
-      console.log('🎯 Received ReactionAdded event:', reactionData)
-      
       // Update the note with the new reaction
       setNotes(prev => prev.map(note => {
         if (note.id === reactionData.noteId) {
@@ -515,14 +482,11 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     }
 
     const handleReactionRemoved = (reactionId: string) => {
-      console.log('🎯 Received ReactionRemoved event:', reactionId)
       // This would need the full reaction data to properly update the UI
       // For now, we'll handle it in the UserReactionRemoved event
     }
 
     const handleUserReactionRemoved = (noteId: string, userEmail: string, reactionType: string) => {
-      console.log('🎯 Received UserReactionRemoved event:', { noteId, userEmail, reactionType })
-      
       // Remove the user's specific reaction from the note
       setNotes(prev => prev.map(note => {
         if (note.id === noteId) {
@@ -579,8 +543,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     if (!signalRService) return
 
     const handleReconnected = async () => {
-      console.log('🔄 SignalR reconnected, refreshing data...')
-      
       try {
         // Reload notes and users after reconnection
         const [notesData, usersData] = await Promise.all([
@@ -622,7 +584,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
         const currentUserExists = convertedUsers.some(user => user.email === currentUser)
         
         if (!currentUserExists) {
-          console.log('Adding current user to users list after reconnection:', currentUser)
           const currentUserNoteCount = convertedNotes.filter(note => note.author === currentUser).length
           const currentUserEntry: User = {
             id: `current-user-${Date.now()}`,
@@ -643,8 +604,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
           title: "Reconnected",
           description: "Real-time collaboration restored",
         })
-        
-        console.log('✅ Data refreshed after reconnection')
       } catch (error) {
         console.error('❌ Failed to refresh data after reconnection:', error)
         toast({
@@ -824,22 +783,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     })
   }
 
-  const handleWheelZoom = (e: React.WheelEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    
-    // Only zoom if Ctrl/Cmd is pressed OR if it's a trackpad pinch
-    if (e.ctrlKey || e.metaKey || Math.abs(e.deltaY) > 50) {
-      const delta = e.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP
-      const containerRect = containerRef.current?.getBoundingClientRect()
-      if (containerRect) {
-        // Calculate zoom center relative to container
-        const centerX = e.clientX - containerRect.left
-        const centerY = e.clientY - containerRect.top
-        handleZoom(delta, centerX, centerY)
-      }
-    }
-  }
 
   // Canvas control functions
   const zoomIn = () => handleZoom(ZOOM_STEP)
@@ -853,9 +796,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
   }
 
   const centerCanvas = () => {
-    console.log('🎯 Centering canvas on notes...')
     if (notes.length === 0) {
-      console.log('❌ No notes to center on')
       toast({
         title: "No Notes Found",
         description: "Create some notes first to center the view.",
@@ -864,7 +805,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
       return
     }
     
-    console.log('📊 Calculating bounds for', notes.length, 'notes')
     const bounds = notes.reduce((acc, note) => ({
       minX: Math.min(acc.minX, note.x),
       maxX: Math.max(acc.maxX, note.x + 256), // Note width
@@ -875,9 +815,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     const centerX = (bounds.minX + bounds.maxX) / 2
     const centerY = (bounds.minY + bounds.maxY) / 2
     
-    console.log('📐 Notes bounds:', bounds)
-    console.log('📍 Center point:', { centerX, centerY })
-    
     const container = containerRef.current
     if (container) {
       const containerRect = container.getBoundingClientRect()
@@ -886,7 +823,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
         y: containerRect.height / 2 - centerY * canvas.scale
       }
       
-      console.log('🚀 Setting new canvas offset:', newOffset)
       setCanvas(prev => ({
         ...prev,
         offset: newOffset,
@@ -950,7 +886,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
       // Create Note: Space (works on both desktop and mobile when not editing)
       if (!isEditing && !isModifierPressed && e.key === ' ') {
         e.preventDefault()
-        console.log('Space key pressed - creating note')
         createNote()
         return
       }
@@ -1017,12 +952,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
         return
       }
 
-      // Reset Demo Data: Ctrl/Cmd + Shift + R (for testing)
-      if (isModifierPressed && e.shiftKey && e.key.toLowerCase() === 'r') {
-        e.preventDefault()
-        resetDemoData()
-        return
-      }
+
     }
 
     document.addEventListener('keydown', handleKeyboardShortcuts)
@@ -1117,7 +1047,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
 
   // Enhanced note creation with viewport consideration
   const createNote = async () => {
-    console.log('createNote function called')
     const container = containerRef.current
     if (!container) {
       console.error('Container ref not available')
@@ -1139,20 +1068,13 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
       workspaceId: config.workspace.defaultWorkspaceId
     }
     
-    console.log('🚀 Creating note with data:', noteData)
-    console.log('📡 SignalR connected:', isConnected, 'Service available:', !!signalRService)
-    
     try {
       // Create note via SignalR for real-time collaboration
       if (signalRService && isConnected) {
-        console.log('Creating note via SignalR')
         await signalRService.createNote(config.workspace.defaultWorkspaceId, noteData)
-        console.log('Note created via SignalR successfully')
       } else {
-        console.log('Creating note via API fallback (SignalR not available)')
         // Fallback to direct API call
         const createdNote = await apiService.createNote(config.workspace.defaultWorkspaceId, noteData)
-        console.log('Note created via API:', createdNote)
         const newNote: Note = {
           id: createdNote.id,
           content: createdNote.content,
@@ -1169,7 +1091,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
           reactions: createdNote.reactions || []
         }
         setNotes((prev) => [...prev, newNote])
-        console.log('Note added to local state')
         
         // Show success toast for API fallback
         toast({
@@ -1197,74 +1118,10 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     }
   }
 
-  // Enhanced SignalR connection monitoring with debug logging
-  useEffect(() => {
-    console.log('🔍 SignalR Connection Monitor - Setting up...')
-    console.log('📊 Current state:', { isConnected, isReconnecting, signalRService: !!signalRService })
-    
-    // Log connection state changes
-    const logConnectionState = () => {
-      const state = signalRService?.getState()
-      console.log('📡 SignalR State Update:', {
-        isConnected: state?.isConnected,
-        connectionId: state?.connectionId,
-        isReconnecting: state?.isReconnecting,
-        lastError: state?.lastError
-      })
-    }
 
-    // Set up enhanced event listeners with debug logging
-    const handleConnected = () => {
-      console.log('✅ SignalR Connected - Setting up workspace join...')
-      logConnectionState()
-    }
-
-    const handleDisconnected = (error?: string) => {
-      console.log('❌ SignalR Disconnected:', error)
-      logConnectionState()
-    }
-
-    const handleReconnecting = (error?: string) => {
-      console.log('🔄 SignalR Reconnecting:', error)
-      logConnectionState()
-    }
-
-    const handleReconnected = (connectionId?: string) => {
-      console.log('✅ SignalR Reconnected:', connectionId)
-      logConnectionState()
-    }
-
-    const handleError = (error: string) => {
-      console.error('❌ SignalR Error:', error)
-      logConnectionState()
-    }
-
-    if (signalRService) {
-      signalRService.on('Connected', handleConnected)
-      signalRService.on('Disconnected', handleDisconnected)
-      signalRService.on('Reconnecting', handleReconnecting)
-      signalRService.on('Reconnected', handleReconnected)
-      signalRService.on('Error', handleError)
-
-      // Log current state
-      logConnectionState()
-    }
-
-    return () => {
-      if (signalRService) {
-        signalRService.off('Connected', handleConnected)
-        signalRService.off('Disconnected', handleDisconnected)
-        signalRService.off('Reconnecting', handleReconnecting)
-        signalRService.off('Reconnected', handleReconnected)
-        signalRService.off('Error', handleError)
-      }
-    }
-  }, [signalRService, isConnected, isReconnecting])
 
   // Enhanced move note with better error handling and logging
   const moveNote = useCallback(async (id: string, x: number, y: number) => {
-    console.log('🚀 moveNote called:', { id, x, y, isConnected, signalRService: !!signalRService })
-    
     const currentNote = notes.find(n => n.id === id)
     if (!currentNote) {
       console.error('❌ Note not found for move:', id)
@@ -1281,18 +1138,9 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     try {
       // Send update to backend via SignalR or API
       if (signalRService && isConnected) {
-        console.log('📡 Sending move via SignalR...')
         await signalRService.moveNote(id, x, y)
-        console.log('✅ Move sent via SignalR successfully')
       } else {
-        console.log('🔄 Sending move via API fallback (SignalR not available)')
-        console.log('SignalR state:', { 
-          service: !!signalRService, 
-          connected: isConnected,
-          state: signalRService?.getState()
-        })
         await apiService.moveNote(id, { id, x, y })
-        console.log('✅ Move sent via API successfully')
       }
 
       // No toast notifications for moving notes - notifications only when others move your notes
@@ -1324,17 +1172,12 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
 
   // Enhanced note update with better error handling and logging
   const updateNote = useCallback(async (id: string, content: string) => {
-    console.log('🚀 updateNote called for note:', id, 'content:', content)
-    console.log('📊 SignalR state:', { isConnected, service: !!signalRService })
-    
     // Get the current note with latest version
     const currentNote = notes.find(n => n.id === id)
     if (!currentNote) {
       console.error('❌ Current note not found for ID:', id)
       return
     }
-
-    console.log('✅ Current note found:', currentNote)
 
     // Update local state immediately for responsive UI
     setNotes(prev => prev.map(note => 
@@ -1349,22 +1192,11 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
         version: currentNote.version // Use current version for concurrency control
       }
 
-      console.log('📝 Update data:', updateData)
-
       // Send update to backend via SignalR or API
       if (signalRService && isConnected) {
-        console.log('📡 Updating note via SignalR')
         await signalRService.updateNote(id, updateData)
-        console.log('✅ Note updated via SignalR successfully')
       } else {
-        console.log('🔄 Updating note via API fallback (SignalR not available)')
-        console.log('SignalR state:', { 
-          service: !!signalRService, 
-          connected: isConnected,
-          state: signalRService?.getState()
-        })
         await apiService.updateNote(id, updateData)
-        console.log('✅ Note updated via API successfully')
       }
     } catch (error: any) {
       console.error('❌ Error updating note:', error)
@@ -1491,11 +1323,8 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
   // Image delete handler
   const handleImageDelete = useCallback(async (noteId: string, imageUrl: string) => {
     try {
-      console.log('🗑️ Deleting image:', { noteId, imageUrl })
-      
       // Send delete via SignalR if available
       if (signalRService && isConnected) {
-        console.log('📡 Deleting image via SignalR')
         // TODO: Add SignalR method for image deletion when backend supports it
         // await signalRService.deleteImage(noteId, imageUrl)
         
@@ -1535,10 +1364,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
           }))
         }))
         setNotes(updatedNotes)
-        
-        console.log('✅ Image deleted and notes refreshed')
       } else {
-        console.log('🔄 Deleting image via API fallback (SignalR not available)')
         
         const response = await fetch(`${config.api.baseUrl}/api/notes/${noteId}/images`, {
           method: 'DELETE',
@@ -1564,8 +1390,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
               }
             : note
         ))
-        
-        console.log('✅ Image deleted via API successfully')
       }
       
       toast({
@@ -1586,24 +1410,14 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
 
   // Enhanced reaction handlers with better logging
   const handleAddReaction = useCallback(async (noteId: string, reactionType: string) => {
-    console.log('🚀 handleAddReaction called:', { noteId, reactionType, isConnected, service: !!signalRService })
-    
     try {
       // Send reaction via SignalR if available
       if (signalRService && isConnected) {
-        console.log('📡 Adding reaction via SignalR')
         await signalRService.addReaction(config.workspace.defaultWorkspaceId, {
           noteId,
           reactionType
         })
-        console.log('✅ Reaction added via SignalR successfully')
       } else {
-        console.log('🔄 Adding reaction via API fallback (SignalR not available)')
-        console.log('SignalR state:', { 
-          service: !!signalRService, 
-          connected: isConnected,
-          state: signalRService?.getState()
-        })
         
         // Fallback to direct API call
         const response = await fetch(`${config.api.baseUrl}/api/notes/${noteId}/reactions`, {
@@ -1619,7 +1433,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
           const errorData = await response.json()
           throw new Error(errorData.error || 'Failed to add reaction')
         }
-        console.log('✅ Reaction added via API successfully')
       }
     } catch (error: any) {
       console.error('❌ Error adding reaction:', error)
@@ -1632,21 +1445,11 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
   }, [signalRService, isConnected, toast])
 
   const handleRemoveReaction = useCallback(async (noteId: string, reactionType: string) => {
-    console.log('🚀 handleRemoveReaction called:', { noteId, reactionType, isConnected, service: !!signalRService })
-    
     try {
       // Send reaction removal via SignalR if available
       if (signalRService && isConnected) {
-        console.log('📡 Removing reaction via SignalR')
         await signalRService.removeUserReaction(config.workspace.defaultWorkspaceId, noteId, reactionType)
-        console.log('✅ Reaction removed via SignalR successfully')
       } else {
-        console.log('🔄 Removing reaction via API fallback (SignalR not available)')
-        console.log('SignalR state:', { 
-          service: !!signalRService, 
-          connected: isConnected,
-          state: signalRService?.getState()
-        })
         
         // Fallback to direct API call
         const response = await fetch(`${config.api.baseUrl}/api/notes/${noteId}/reactions?reactionType=${encodeURIComponent(reactionType)}`, {
@@ -1660,7 +1463,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
           const errorData = await response.json()
           throw new Error(errorData.error || 'Failed to remove reaction')
         }
-        console.log('✅ Reaction removed via API successfully')
       }
     } catch (error: any) {
       console.error('❌ Error removing reaction:', error)
@@ -1700,12 +1502,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     handleSignOut()
   }
 
-  // Add function to reset demo data
-  const resetDemoData = () => {
-    localStorage.removeItem("notes")
-    localStorage.removeItem("users")
-    window.location.reload()
-  }
+
 
   // Focus mode - hide UI elements for better concentration
 
@@ -1760,26 +1557,21 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
 
   // Handle sign out
   const handleSignOut = async () => {
-    console.log('🔐 Starting sign out process...')
     try {
       // Step 1: Sign out from workspace via SignalR (this will remove user completely)
       if (signalRService && isConnected) {
-        console.log('📡 Signing out from workspace via SignalR...')
         await signalRService.signOut(config.workspace.defaultWorkspaceId)
       }
       
       // Step 2: Disconnect SignalR
       if (signalRService) {
-        console.log('🔌 Disconnecting SignalR...')
         await signalRService.disconnect()
       }
       
       // Step 3: Logout from backend
-      console.log('🚪 Logging out from backend...')
       await logout()
       
       // Step 4: Call parent callback
-      console.log('✅ Sign out completed successfully')
       onSignOut()
     } catch (error) {
       console.error('❌ Error during sign out:', error)
@@ -1887,10 +1679,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
                   if (firstNote) {
                     const newX = firstNote.x + 50
                     const newY = firstNote.y + 50
-                    console.log('🧪 Testing note move:', { noteId: firstNote.id, newX, newY })
                     moveNote(firstNote.id, newX, newY)
-                  } else {
-                    console.log('❌ No notes available for testing')
                   }
                 }}
                 className="w-full text-xs h-7"
@@ -2172,5 +1961,3 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     </TooltipProvider>
   )
 }
-
-
