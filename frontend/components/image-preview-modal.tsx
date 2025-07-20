@@ -141,36 +141,42 @@ export function ImagePreviewModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-5xl w-full h-[90vh] p-0 overflow-hidden flex flex-col">
-        <DialogHeader className="p-4 pb-2 border-b flex-shrink-0">
+      <DialogContent className="max-w-5xl w-full h-[95vh] p-0 overflow-hidden flex flex-col">
+        <DialogHeader className="p-4 pb-3 border-b flex-shrink-0">
+          {/* Title row - clean and simple */}
           <div className="flex items-center justify-between">
+            <DialogTitle className="text-lg font-semibold">
+              Image Preview
+            </DialogTitle>
+          </div>
+          
+          {/* Info row - author and photo count with proper spacing */}
+          <div className="flex items-center justify-between mt-2">
             <div className="flex items-center gap-3">
-              <DialogTitle className="text-lg font-semibold">
-                Image Preview
-              </DialogTitle>
               {noteAuthor && (
                 <Badge variant="secondary" className="text-xs">
                   by {getDisplayName(noteAuthor)}
                 </Badge>
               )}
             </div>
-            <div className="flex items-center gap-2">
-              {hasMultipleImages && (
-                <Badge variant="outline" className="text-xs">
-                  {currentIndex + 1} of {images.length}
-                </Badge>
-              )}
-            </div>
+            
+            {hasMultipleImages && (
+              <Badge variant="outline" className="text-xs">
+                {currentIndex + 1} of {images.length}
+              </Badge>
+            )}
           </div>
           
+          {/* Note content row */}
           {noteContent && (
-            <div className="text-sm text-muted-foreground mt-2 max-h-10 overflow-hidden">
-              {noteContent.length > 100 ? noteContent.substring(0, 100) + '...' : noteContent}
+            <div className="text-sm text-muted-foreground mt-3 max-h-12 overflow-hidden">
+              {noteContent.length > 120 ? noteContent.substring(0, 120) + '...' : noteContent}
             </div>
           )}
         </DialogHeader>
 
-        <div className="flex-1 relative flex items-center justify-center bg-black/5 dark:bg-black/20 min-h-0 overflow-hidden">{/* Navigation buttons */}
+        <div className="flex-1 relative flex items-center justify-center bg-black/5 dark:bg-black/20 min-h-0 overflow-hidden">
+          {/* Navigation buttons */}
           {hasMultipleImages && (
             <>
               <Button
@@ -219,13 +225,13 @@ export function ImagePreviewModal({
             />
           </div>
 
-          {/* Zoom controls */}
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-background/80 rounded-full p-2 shadow-lg">
+          {/* Zoom controls - slightly larger on mobile */}
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-background/90 rounded-full p-2 shadow-lg">
             <Button
               variant="ghost"
               size="sm"
               onClick={toggleZoom}
-              className="h-8 w-8 p-0"
+              className="h-10 w-10 sm:h-8 sm:w-8 p-0"
               title={isZoomed ? "Zoom out (Z)" : "Zoom in (Z)"}
             >
               {isZoomed ? <ZoomOut className="w-4 h-4" /> : <ZoomIn className="w-4 h-4" />}
@@ -237,7 +243,7 @@ export function ImagePreviewModal({
               variant="ghost"
               size="sm"
               onClick={handleDownload}
-              className="h-8 w-8 p-0"
+              className="h-10 w-10 sm:h-8 sm:w-8 p-0"
               title="Download image"
             >
               <Download className="w-4 h-4" />
@@ -247,7 +253,7 @@ export function ImagePreviewModal({
               variant="ghost"
               size="sm"
               onClick={handleOpenInNewTab}
-              className="h-8 w-8 p-0"
+              className="h-10 w-10 sm:h-8 sm:w-8 p-0"
               title="Open in new tab"
             >
               <ExternalLink className="w-4 h-4" />
@@ -261,7 +267,7 @@ export function ImagePreviewModal({
                   variant="ghost"
                   size="sm"
                   onClick={handleDeleteImage}
-                  className="h-8 w-8 p-0 hover:bg-red-500/20 hover:text-red-600"
+                  className="h-10 w-10 sm:h-8 sm:w-8 p-0 hover:bg-red-500/20 hover:text-red-600"
                   title="Delete image"
                 >
                   <Trash2 className="w-4 h-4" />

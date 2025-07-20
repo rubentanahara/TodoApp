@@ -580,123 +580,144 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
         </div>
       )}
 
-      {/* Image Gallery - Compact Design */}
+      {/* Images Gallery - Modern Design */}
       {note.imageUrls && note.imageUrls.length > 0 && (
-        <div className="mt-4 border-t pt-4">
-          <div className="flex items-center justify-between mb-2">
-            <div className="text-xs text-muted-foreground font-medium">
-              {note.imageUrls.length} image{note.imageUrls.length !== 1 ? 's' : ''}
-            </div>
+        <div className="mt-4">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-sm font-medium text-foreground/80">
+              {note.imageUrls.length === 1 ? '1 image' : `${note.imageUrls.length} images`}
+            </h4>
             {note.imageUrls.length > 3 && (
               <Button
                 variant="ghost"
                 size="sm"
+                className="text-xs h-6 px-2 text-muted-foreground hover:text-foreground"
                 onClick={(e) => {
                   e.stopPropagation()
                   setShowAllImages(!showAllImages)
                 }}
-                className="h-6 px-2 text-xs"
                 onMouseDown={handleStopPropagation}
                 onTouchStart={handleStopPropagation}
               >
-                {showAllImages ? 'Show less' : 'Show all'}
+                {showAllImages ? 'Show less' : `Show all ${note.imageUrls.length}`}
               </Button>
             )}
           </div>
           
-          <div className={`grid grid-cols-3 gap-1.5 ${
+          <div className={`grid gap-2 ${
+            note.imageUrls.length === 1 
+              ? 'grid-cols-1' 
+              : note.imageUrls.length === 2 
+                ? 'grid-cols-2' 
+                : 'grid-cols-3'
+          } ${
             note.imageUrls.length > 3 && !showAllImages 
-              ? 'max-h-32 overflow-hidden' 
+              ? 'max-h-24 overflow-hidden' 
               : note.imageUrls.length > 9 
-                ? 'max-h-48 overflow-y-auto' 
+                ? 'max-h-48 overflow-y-auto scrollbar-thin' 
                 : ''
           }`}>
             {(showAllImages ? note.imageUrls : note.imageUrls.slice(0, 3)).map((url, displayIndex) => {
               const actualIndex = showAllImages ? displayIndex : displayIndex
               return (
-                <div key={actualIndex} className="relative group cursor-pointer"
-                     onClick={(e) => {
-                       e.stopPropagation()
-                       e.preventDefault()
-                       handleImageClick(actualIndex, e)
-                     }}
-                     onMouseDown={handleStopPropagation}
-                     onTouchStart={handleStopPropagation}
+                <div 
+                  key={actualIndex} 
+                  className="group relative cursor-pointer rounded-lg overflow-hidden bg-muted/30 hover:bg-muted/50 transition-all duration-200"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    e.preventDefault()
+                    handleImageClick(actualIndex, e)
+                  }}
+                  onMouseDown={handleStopPropagation}
+                  onTouchStart={handleStopPropagation}
                 >
-                  <img 
-                    src={url} 
-                    alt={`Note image ${actualIndex + 1}`}
-                    className={`w-full h-12 object-cover rounded border hover:opacity-90 transition-all cursor-pointer ${
-                      isOwner 
-                        ? 'hover:ring-1 hover:ring-primary/50' 
-                        : 'hover:ring-1 hover:ring-gray-300'
-                    }`}
-                    style={{ pointerEvents: 'none' }}
-                  />
-                  {/* Image overlay with number for better organization */}
-                  <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity rounded flex items-center justify-center">
-                    <span className="text-white text-xs font-medium">
+                  <div className="aspect-square relative">
+                    <img 
+                      src={url} 
+                      alt={`Note image ${actualIndex + 1}`}
+                      className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
+                      style={{ pointerEvents: 'none' }}
+                    />
+                    
+                    {/* Subtle overlay on hover */}
+                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors duration-200" />
+                    
+                    {/* Image number indicator */}
+                    <div className="absolute bottom-1 left-1 bg-black/60 text-white text-xs px-1.5 py-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                       {actualIndex + 1}
-                    </span>
+                    </div>
+                    
+                    {/* Delete button - only on hover and very subtle */}
+                    {isOwner && (
+                      <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            e.preventDefault()
+                            if (window.confirm('Delete this image?')) {
+                              handleDeleteImage(actualIndex)
+                            }
+                          }}
+                          className="h-6 w-6 p-0 bg-black/60 hover:bg-red-500/80 text-white/80 hover:text-white rounded-full backdrop-blur-sm transition-all duration-200"
+                          onMouseDown={handleStopPropagation}
+                          onTouchStart={handleStopPropagation}
+                          title="Delete image"
+                        >
+                          <Trash className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    )}
                   </div>
-                  {/* Delete button - only visible for owners */}
-                  {isOwner && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        e.preventDefault()
-                        // Simple confirmation before deletion
-                        if (window.confirm('Are you sure you want to delete this image?')) {
-                          handleDeleteImage(actualIndex)
-                        }
-                      }}
-                      className="absolute top-1 right-1 h-5 w-5 p-0 bg-red-500/80 hover:bg-red-600 text-white opacity-0 group-hover:opacity-100 transition-opacity"
-                      onMouseDown={handleStopPropagation}
-                      onTouchStart={handleStopPropagation}
-                      title="Delete image"
-                    >
-                      <Trash className="w-3 h-3" />
-                    </Button>
-                  )}
                 </div>
               )
             })}
           </div>
           
-          {/* Show preview of hidden images */}
+          {/* Collapsed preview indicator */}
           {note.imageUrls.length > 3 && !showAllImages && (
-            <div className="mt-2 text-xs text-muted-foreground text-center">
-              +{note.imageUrls.length - 3} more images
+            <div className="mt-2 text-center">
+              <span className="text-xs text-muted-foreground bg-muted/50 px-2 py-1 rounded-full">
+                +{note.imageUrls.length - 3} more
+              </span>
             </div>
           )}
         </div>
       )}
 
-      {/* Image Upload Button - Integrated */}
+      {/* Add Image Button - Modern Design */}
       {isOwner && (
-        <div className="mt-3 pt-3 border-t">
+        <div className="mt-4">
           <Button
-            size="sm"
             variant="outline"
+            size="sm"
             onClick={(e) => {
               e.stopPropagation()
               fileInputRef.current?.click()
             }}
             disabled={isUploadingImage}
-            className="h-7 px-2 text-xs w-full"
+            className="w-full h-10 border-dashed border-muted-foreground/30 hover:border-primary/50 hover:bg-primary/5 transition-all duration-200 group"
             onMouseDown={handleStopPropagation}
             onTouchStart={handleStopPropagation}
           >
-            <ImagePlus className="w-3 h-3 mr-1" />
-            {isUploadingImage ? 'Uploading...' : 'Add Image'}
+            {isUploadingImage ? (
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+                <span className="text-sm">Uploading...</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-muted-foreground group-hover:text-primary transition-colors">
+                <ImagePlus className="w-4 h-4" />
+                <span className="text-sm font-medium">Add Image</span>
+              </div>
+            )}
           </Button>
         </div>
       )}
 
-      {/* Reactions */}
-      <div className="mt-3 pt-3 border-t overflow-hidden">
+      {/* Reactions - Modern Design */}
+      <div className="mt-4 pt-4 border-t border-border/50">
         <ReactionPicker
           noteId={note.id}
           reactions={note.reactions}
@@ -715,7 +736,7 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
         className="hidden"
       />
 
-      <div className="text-xs text-muted-foreground mt-3 opacity-70">
+      <div className="text-xs text-muted-foreground/60 mt-4 font-mono">
         {timeString}
       </div>
 
