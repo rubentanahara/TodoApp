@@ -9,6 +9,16 @@ import { Note } from "@/types/api"
 import { rafThrottle, useDebouncedCallback } from "@/lib/performance"
 import { ReactionPicker } from "./reaction-picker"
 import { ImagePreviewModal } from "./image-preview-modal"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 // Helper function to get display name from email
 const getDisplayName = (email: string): string => {
@@ -44,6 +54,9 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
   const [showAllImages, setShowAllImages] = useState(false)
   const [showImagePreview, setShowImagePreview] = useState(false)
   const [selectedImageIndex, setSelectedImageIndex] = useState(0)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [imageToDelete, setImageToDelete] = useState<number | null>(null)
+  const [isDeletingImage, setIsDeletingImage] = useState(false)
   const cardRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -385,40 +398,39 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
     setShowImagePreview(false)
   }, [])
 
-  const handleDeleteImage = useCallback(async (imageIndex: number) => {
-    if (!isOwner) return // Only owners can delete images
+  const handleDeleteImage = useCallback(async (index: number) => {
+    if (!onImageDelete || !note.imageUrls[index]) return
     
+    setIsDeletingImage(true)
     try {
-      const imageUrl = note.imageUrls[imageIndex]
-      
-      // Use parent callback if provided, otherwise make direct API call
-      if (onImageDelete) {
-        await onImageDelete(note.id, imageUrl)
-      } else {
-        // Fallback to direct API call
-        const { config } = await import('@/lib/config')
-        
-        const response = await fetch(`${config.api.baseUrl}/api/notes/${note.id}/images`, {
-          method: 'DELETE',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem(config.auth.tokenKey)}`
-          },
-          body: JSON.stringify({ imageUrl })
-        })
-
-        if (!response.ok) {
-          const errorData = await response.json()
-          throw new Error(errorData.error || 'Failed to delete image')
-        }
-        
-      }
-      
-    } catch (error: any) {
-      console.error('Error deleting image:', error)
-      // Could show a toast notification here if available
+      await onImageDelete(note.id, note.imageUrls[index])
+    } catch (error) {
+      console.error('Failed to delete image:', error)
+    } finally {
+      setIsDeletingImage(false)
     }
-  }, [isOwner, note.id, note.imageUrls, onImageDelete])
+  }, [note.id, note.imageUrls, onImageDelete])
+
+  const handleOpenDeleteDialog = useCallback((index: number) => {
+    setImageToDelete(index)
+    setDeleteDialogOpen(true)
+  }, [])
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (imageToDelete !== null) {
+      await handleDeleteImage(imageToDelete)
+      setDeleteDialogOpen(false)
+      setImageToDelete(null)
+      setIsDeletingImage(false)
+    }
+  }, [imageToDelete, handleDeleteImage])
+
+  const handleCancelDelete = useCallback(() => {
+    if (isDeletingImage) return // Prevent closing during deletion
+    setDeleteDialogOpen(false)
+    setImageToDelete(null)
+    setIsDeletingImage(false)
+  }, [isDeletingImage])
 
   useEffect(() => {
     
@@ -604,13 +616,7 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
             )}
           </div>
           
-          <div className={`grid gap-2 ${
-            note.imageUrls.length === 1 
-              ? 'grid-cols-1' 
-              : note.imageUrls.length === 2 
-                ? 'grid-cols-2' 
-                : 'grid-cols-3'
-          } ${
+          <div className={`grid grid-cols-3 gap-2 ${
             note.imageUrls.length > 3 && !showAllImages 
               ? 'max-h-24 overflow-hidden' 
               : note.imageUrls.length > 9 
@@ -656,9 +662,7 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
                           onClick={(e) => {
                             e.stopPropagation()
                             e.preventDefault()
-                            if (window.confirm('Delete this image?')) {
-                              handleDeleteImage(actualIndex)
-                            }
+                            handleOpenDeleteDialog(actualIndex)
                           }}
                           className="h-6 w-6 p-0 bg-black/60 hover:bg-red-500/80 text-white/80 hover:text-white rounded-full backdrop-blur-sm transition-all duration-200"
                           onMouseDown={handleStopPropagation}
@@ -753,6 +757,50 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
           onDeleteImage={handleDeleteImage}
         />
       )}
+
+      {/* Delete Confirmation Dialog - Modern Design */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={(open) => {
+        if (!open && !isDeletingImage) {
+          handleCancelDelete()
+        }
+      }}>
+        <AlertDialogContent className="sm:max-w-md">
+          <AlertDialogHeader className="text-center sm:text-left">
+            <div className="mx-auto sm:mx-0 flex h-12 w-12 items-center justify-center rounded-full bg-red-50 dark:bg-red-950/30 mb-4">
+              <Trash className="h-6 w-6 text-red-600 dark:text-red-400" />
+            </div>
+            <AlertDialogTitle className="text-xl font-semibold">
+              Delete Image?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-base text-muted-foreground">
+              This image will be permanently removed from your note. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-3 sm:gap-2">
+            <AlertDialogCancel 
+              onClick={handleCancelDelete}
+              className="flex-1 sm:flex-none"
+              disabled={isDeletingImage}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleConfirmDelete}
+              className="flex-1 sm:flex-none bg-red-600 hover:bg-red-700 focus:ring-red-600"
+              disabled={isDeletingImage}
+            >
+              {isDeletingImage ? (
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <span>Deleting...</span>
+                </div>
+              ) : (
+                "Delete Image"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   )
 })

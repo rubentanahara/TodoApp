@@ -1696,7 +1696,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
         )}
 
         {/* Debug Panel - Only in development */}
-        {process.env.NODE_ENV === 'development' && (
+        {process.env.NODE_ENV === 'development' && false && (
           <div className="fixed bottom-4 right-4 z-50 bg-background/90 backdrop-blur border rounded-lg p-3 text-xs space-y-2 max-w-xs">
             <div className="font-semibold">SignalR Debug</div>
             <div className="space-y-1">
