@@ -196,7 +196,9 @@ public class NoteService : INoteService
     {
         try
         {
-            var note = await _noteRepository.GetByIdAsync(id);
+            var note = await _dbContext.Notes
+                .Include(n => n.Reactions)
+                .FirstOrDefaultAsync(n => n.Id == id);
             
             if (note == null)
             {
