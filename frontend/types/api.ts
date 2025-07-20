@@ -1,5 +1,3 @@
-import { ReactNode } from 'react';
-
 // API Response wrapper
 export interface ApiResponse<T> {
   data: T;
@@ -20,7 +18,7 @@ export interface NoteDto {
   updatedAt: string;
   version: number;
   imageUrls?: string[];
-  reactions?: NoteReaction[];
+  reactions?: NoteReactionSummaryDto[];
 }
 
 export interface NoteCreateDto {
@@ -63,24 +61,34 @@ export interface LoginDto {
 export interface AuthResponseDto {
   token: string;
   user: UserDto;
+  expiresAt: string;
 }
 
 export interface NoteReactionCreateDto {
   noteId: string;
   reactionType: string;
-  x: number;
-  y: number;
 }
 
 // Reaction-related DTOs
 export interface NoteReactionDto {
   id: string;
   noteId: string;
-  userEmail: string;
   reactionType: string;
-  workspaceId: string;
+  userEmail: string;
   createdAt: string;
-  updatedAt: string;
+}
+
+export interface NoteReactionSummaryDto {
+  reactionType: string;
+  count: number;
+  users: string[];
+  hasCurrentUser: boolean;
+}
+
+export interface NoteMoveEventDto {
+  Note: NoteDto;
+  MovedBy: string;
+  MovedAt: string;
 }
 
 export interface PresenceUpdateDto {
@@ -145,7 +153,7 @@ export interface SignalREvents {
   UserLeft: (email: string) => void;
   NoteCreated: (note: NoteDto) => void;
   NoteUpdated: (note: NoteDto) => void;
-  NoteMoved: (note: NoteDto) => void;
+  NoteMoved: (moveEventData: NoteMoveEventDto) => void;
   NoteDeleted: (noteId: string) => void;
   ReactionAdded: (reaction: NoteReactionDto) => void;
   ReactionRemoved: (reactionId: string) => void;

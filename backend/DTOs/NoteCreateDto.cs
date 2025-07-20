@@ -10,6 +10,9 @@ public class NoteCreateDto
     public string Content { get; set; } = string.Empty;
     
     [Required]
+    public string WorkspaceId { get; set; } = string.Empty;
+    
+    [Required]
     [Range(0, 5000)]
     public decimal X { get; set; }
     

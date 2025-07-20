@@ -315,6 +315,30 @@ public class NotesController : ControllerBase
                 return BadRequest(result);
             }
 
+            // Broadcast the move event to other clients via SignalR (same as SignalR hub)
+            try
+            {
+                var workspaceId = result.Data.WorkspaceId;
+                
+                // Create enhanced event data that includes who moved the note
+                var moveEventData = new NoteMoveEventDto
+                {
+                    Note = result.Data,
+                    MovedBy = email,
+                    MovedAt = DateTime.UtcNow
+                };
+                
+                await _hubContext.Clients.Group(workspaceId).SendAsync("NoteMoved", moveEventData);
+                
+                _logger.LogInformation("Note {NoteId} moved via REST API by {Email} in workspace {WorkspaceId} to position ({X}, {Y}) - broadcast sent", 
+                    id, email, workspaceId, positionUpdateDto.X, positionUpdateDto.Y);
+            }
+            catch (Exception broadcastEx)
+            {
+                // Don't fail the entire request if broadcasting fails
+                _logger.LogWarning(broadcastEx, "Failed to broadcast note move event via SignalR for note {NoteId}", id);
+            }
+
             return Ok(result);
         }
         catch (Exception ex)

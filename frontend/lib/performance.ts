@@ -185,11 +185,19 @@ export const batchUpdates = (updates: Array<() => void>) => {
 const displayNameCache = new Map<string, string>()
 
 export const getDisplayName = (email: string): string => {
+  // Handle undefined, null, or empty email
+  if (!email || typeof email !== 'string') {
+    return 'Unknown User'
+  }
+
   if (displayNameCache.has(email)) {
     return displayNameCache.get(email)!
   }
 
-  const displayName = email.split("@")[0]
+  // Handle emails that don't contain '@' symbol
+  const atIndex = email.indexOf('@')
+  const displayName = atIndex > 0 ? email.substring(0, atIndex) : email
+
   displayNameCache.set(email, displayName)
   return displayName
 }

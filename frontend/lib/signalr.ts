@@ -6,7 +6,10 @@ import {
   NoteCreateDto, 
   NoteUpdateDto, 
   SignalREvents, 
-  SignalRMethods 
+  SignalRMethods,
+  UserDto,
+  NoteReactionDto,
+  NoteMoveEventDto
 } from '@/types/api';
 import { useState, useEffect } from 'react';
 
@@ -199,15 +202,15 @@ class SignalRService {
       this.emit('NoteUpdated', note);
     });
 
-    this.connection.on('NoteMoved', (note: NoteDto) => {
-      this.emit('NoteMoved', note);
+    this.connection.on('NoteMoved', (moveEventData: NoteMoveEventDto) => {
+      this.emit('NoteMoved', moveEventData);
     });
 
     this.connection.on('NoteDeleted', (noteId: string) => {
       this.emit('NoteDeleted', noteId);
     });
 
-    this.connection.on('ReactionAdded', (reaction: any) => {
+    this.connection.on('ReactionAdded', (reaction: NoteReactionDto) => {
       this.emit('ReactionAdded', reaction);
     });
 

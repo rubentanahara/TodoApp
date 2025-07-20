@@ -471,6 +471,7 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
     <Card
       ref={cardRef}
       data-note-card="true"
+      data-note-id={note.id}
       className={`absolute w-60 sm:w-72 min-h-32 sm:min-h-36 p-3 sm:p-4 select-none ${
         isHighlighted 
           ? `ring-2 ${userColor.ring} shadow-xl` 

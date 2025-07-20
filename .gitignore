@@ -92,3 +92,4 @@ Thumbs.db
 # Project specific
 # Keep each project's .gitignore for specific patterns
 # This file handles common patterns across both projects 
+.fake

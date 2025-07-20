@@ -35,7 +35,7 @@ import { useAuth } from "@/lib/auth"
 import { apiService } from "@/lib/api"
 import { useSignalR } from "@/lib/signalr"
 import { config } from "@/lib/config"
-import { Note, User, NoteDto, NoteCreateDto, NoteUpdateDto, NoteReactionDto } from "@/types/api"
+import { Note, User, NoteDto, NoteCreateDto, NoteUpdateDto, NoteReactionDto, NoteMoveEventDto } from "@/types/api"
 
 // Using types from backend integration
 // Note and User types are imported from @/types/api
@@ -337,11 +337,17 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
       ))
     }
 
-    const handleNoteMoved = (noteDto: NoteDto) => {
-      const isMyNote = noteDto.authorEmail === currentUser
-      const previousNote = notes.find(n => n.id === noteDto.id)
-      const wasUserInitiated = userInitiatedMoves.current.has(noteDto.id)
+    const handleNoteMoved = (moveEventData: NoteMoveEventDto) => {
+      // Handle both old format (direct NoteDto) and new format (with moveEventData)
+      const noteDto = moveEventData.Note || moveEventData // Backwards compatibility
+      const movedBy = moveEventData.MovedBy || null // Who moved the note (can be null)
+      const movedAt = moveEventData.MovedAt ? new Date(moveEventData.MovedAt) : new Date()
       
+      const isMyNote = noteDto.authorEmail === currentUser
+      const wasUserInitiated = userInitiatedMoves.current.has(noteDto.id)
+      const wasMovedByMe = movedBy === currentUser
+      
+      // Update the note position
       setNotes(prev => prev.map(note => 
         note.id === noteDto.id ? {
           ...note,
@@ -353,13 +359,36 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
         } : note
       ))
 
-      // Only show toast when someone ELSE moves YOUR note (not when you move your own note)
-      if (isMyNote && previousNote && !wasUserInitiated) {
-        toast({
-          title: "Your note was moved!",
-          description: `Someone moved your note to help organize the workspace. 🚀`,
-          duration: 3000,
-        })
+      // Show notification only when someone else moves YOUR note
+      if (!wasMovedByMe && !wasUserInitiated && isMyNote) {
+        if (movedBy) {
+          // We know who moved your note
+          const moverDisplayName = getDisplayName(movedBy)
+          toast({
+            title: "Your note was moved!",
+            description: `${moverDisplayName} moved your note to help organize the workspace. 🚀`,
+            duration: 4000,
+          })
+        } else {
+          // Fallback for when we don't know who moved it (old format or missing data)
+          toast({
+            title: "Your note was moved!",
+            description: "Someone moved your note to help organize the workspace. 🚀",
+            duration: 3000,
+          })
+        }
+      }
+
+      // Add visual feedback for moved notes (brief highlight animation)
+      if (!wasMovedByMe && !wasUserInitiated) {
+        // Add a CSS class to trigger animation
+        const noteElement = document.querySelector(`[data-note-id="${noteDto.id}"]`)
+        if (noteElement) {
+          noteElement.classList.add('note-moved-by-other')
+          setTimeout(() => {
+            noteElement.classList.remove('note-moved-by-other')
+          }, 2000)
+        }
       }
     }
 
@@ -1120,7 +1149,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
 
 
 
-  // Enhanced move note with better error handling and logging
+  // Enhanced move note with better error handling and conflict resolution
   const moveNote = useCallback(async (id: string, x: number, y: number) => {
     const currentNote = notes.find(n => n.id === id)
     if (!currentNote) {
@@ -1128,11 +1157,14 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
       return
     }
 
+    // Store original position for potential rollback
+    const originalPosition = { x: currentNote.x, y: currentNote.y }
+
     // Mark as user-initiated move to prevent feedback loops
     userInitiatedMoves.current.add(id)
-    setTimeout(() => userInitiatedMoves.current.delete(id), 1000)
+    setTimeout(() => userInitiatedMoves.current.delete(id), 2000) // Increased timeout for better conflict detection
 
-    // Update local state immediately for responsive UI
+    // Optimistic update - immediately show the move locally
     rafThrottledMoveNote(id, x, y)
     
     try {
@@ -1143,32 +1175,64 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
         await apiService.moveNote(id, { id, x, y })
       }
 
-      // No toast notifications for moving notes - notifications only when others move your notes
+      // Success - no additional action needed as the optimistic update is already applied
     } catch (error: any) {
       console.error('❌ Error moving note:', error)
       
-      // Check if it's a version conflict
-      if (error.message?.includes('modified by another user')) {
+      // Rollback the optimistic update
+      setNotes(prev => prev.map(n => 
+        n.id === id ? { ...n, x: originalPosition.x, y: originalPosition.y } : n
+      ))
+      
+      // Handle different types of conflicts
+      if (error.message?.includes('modified by another user') || error.message?.includes('version conflict')) {
         toast({
-          title: "Version Conflict",
-          description: "This note was updated by another user. The page will refresh to get the latest version.",
+          title: "Move Conflict",
+          description: "Someone else moved this note at the same time. Refreshing to get the latest position...",
           variant: "destructive",
+          duration: 3000,
         })
-        // Refresh the notes to get the latest version
-        setTimeout(() => {
-          window.location.reload()
-        }, 2000)
+        
+        // Refresh just this note instead of the entire page
+        try {
+          const refreshedNote = await apiService.getNote(id)
+          if (refreshedNote) {
+            setNotes(prev => prev.map(n => 
+              n.id === id ? {
+                ...n,
+                x: refreshedNote.x,
+                y: refreshedNote.y,
+                version: refreshedNote.version,
+                lastModified: new Date(refreshedNote.updatedAt)
+              } : n
+            ))
+          }
+        } catch (refreshError) {
+          console.error('Failed to refresh note after conflict:', refreshError)
+          // Fallback to page reload if individual note refresh fails
+          setTimeout(() => {
+            window.location.reload()
+          }, 2000)
+        }
+      } else if (error.message?.includes('not found')) {
+        toast({
+          title: "Note Not Found",
+          description: "This note may have been deleted by another user.",
+          variant: "destructive",
+          duration: 3000,
+        })
+        // Remove the note from local state if it no longer exists
+        setNotes(prev => prev.filter(n => n.id !== id))
       } else {
         toast({
-          title: "Error",
-          description: "Failed to move note. Please try again.",
+          title: "Move Failed",
+          description: "Failed to move note. The position has been restored.",
           variant: "destructive",
+          duration: 3000,
         })
-        // Revert local change on error
-        setNotes(prev => prev.map(n => n.id === id ? { ...n, x: currentNote.x, y: currentNote.y } : n))
       }
     }
-  }, [rafThrottledMoveNote, signalRService, isConnected, notes, toast, currentUser])
+  }, [rafThrottledMoveNote, signalRService, isConnected, notes, toast])
 
   // Enhanced note update with better error handling and logging
   const updateNote = useCallback(async (id: string, content: string) => {

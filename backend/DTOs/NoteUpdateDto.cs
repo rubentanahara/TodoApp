@@ -15,4 +15,6 @@ public class NoteUpdateDto
     
     [Required]
     public int Version { get; set; }
+    
+    public List<string>? ImageUrls { get; set; }
 } 

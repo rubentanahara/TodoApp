@@ -371,3 +371,32 @@ body {
 .reaction-element {
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
+
+/* Note moved by other user animation */
+.note-moved-by-other {
+  animation: note-moved-pulse 2s ease-in-out;
+  transform-origin: center;
+}
+
+@keyframes note-moved-pulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  }
+  25% {
+    transform: scale(1.02);
+    box-shadow: 0 10px 15px -3px rgba(59, 130, 246, 0.3), 0 4px 6px -2px rgba(59, 130, 246, 0.15);
+  }
+  50% {
+    transform: scale(1.01);
+    box-shadow: 0 8px 12px -2px rgba(59, 130, 246, 0.25), 0 3px 5px -1px rgba(59, 130, 246, 0.12);
+  }
+  75% {
+    transform: scale(1.005);
+    box-shadow: 0 6px 9px -1px rgba(59, 130, 246, 0.15), 0 2px 3px -1px rgba(59, 130, 246, 0.08);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  }
+}

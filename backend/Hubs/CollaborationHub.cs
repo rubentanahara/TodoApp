@@ -161,11 +161,21 @@ public class CollaborationHub : Hub
             
             if (result.Success)
             {
-                // Send to all users in the workspace
+                // Send to all users in the workspace with mover information
                 var workspaceId = result.Data.WorkspaceId;
                 
-                await Clients.Group(workspaceId).SendAsync("NoteMoved", result.Data);
+                // Create enhanced event data that includes who moved the note
+                var moveEventData = new NoteMoveEventDto
+                {
+                    Note = result.Data,
+                    MovedBy = email,
+                    MovedAt = DateTime.UtcNow
+                };
                 
+                await Clients.Group(workspaceId).SendAsync("NoteMoved", moveEventData);
+                
+                _logger.LogInformation("Note {NoteId} moved via SignalR by {Email} in workspace {WorkspaceId} to position ({X}, {Y})", 
+                    noteId, email, workspaceId, x, y);
             }
             else
             {

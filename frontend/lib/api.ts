@@ -69,7 +69,7 @@ class ApiService {
     if (error.response) {
       // Server responded with an error
       const response = error.response;
-      const data = response.data;
+      const data = response.data as ApiResponse<any>;
       
       apiError = new ApiServiceError(
         data?.error || 'An error occurred',
