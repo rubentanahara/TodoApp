@@ -273,7 +273,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
         setActiveCollaborators(finalUsers.filter(u => u.isOnline && u.email !== currentUser).map(u => u.email))
         
       } catch (err: any) {
-        console.error('Error loading data:', err)
         setError(err.message || 'Failed to load data')
         toast({
           title: "Error",
@@ -294,9 +293,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
       if (signalRService && isConnected) {
         try {
           await signalRService.joinWorkspace(config.workspace.defaultWorkspaceId)
-          console.log('✅ Successfully joined workspace:', config.workspace.defaultWorkspaceId)
         } catch (error) {
-          console.error('❌ Failed to join workspace:', error)
           toast({
             title: "Connection Warning",
             description: "Failed to join workspace. Real-time features may not work properly.",
@@ -363,7 +360,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     }
 
     const handleNoteMoved = (moveEventData: NoteMoveEventDto | NoteDto) => {
-      console.log('🔍 Received NoteMoved event:', moveEventData);
       
       // Handle both old format (direct NoteDto) and new format (NoteMoveEventDto)
       let noteDto: NoteDto;
@@ -373,21 +369,14 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
       // Check if it's the new format (has note, movedBy properties)
       if ('note' in moveEventData && 'movedBy' in moveEventData) {
         // New format: NoteMoveEventDto with camelCase properties
-        console.log('📦 Using new NoteMoveEventDto format (camelCase)');
         noteDto = moveEventData.note;
         movedBy = moveEventData.movedBy;
         movedAt = moveEventData.movedAt ? new Date(moveEventData.movedAt) : new Date();
       } else if ('id' in moveEventData && 'authorEmail' in moveEventData) {
         // Old format: Direct NoteDto
-        console.log('📦 Using old NoteDto format');
         noteDto = moveEventData as NoteDto;
         movedBy = null; // Unknown who moved it in old format
       } else {
-        console.error('❌ Invalid move event data received:', {
-          received: moveEventData,
-          type: typeof moveEventData,
-          keys: moveEventData ? Object.keys(moveEventData) : 'null/undefined'
-        });
         return;
       }
       
@@ -682,7 +671,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
           description: "Real-time collaboration restored",
         })
       } catch (error) {
-        console.error('❌ Failed to refresh data after reconnection:', error)
         toast({
           title: "Reconnection Issue",
           description: "Please refresh the page if issues persist",
@@ -912,7 +900,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
         duration: 2000,
       })
     } else {
-      console.error('❌ Container ref not available')
+
     }
   }
 
@@ -1126,7 +1114,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
   const createNote = async () => {
     const container = containerRef.current
     if (!container) {
-      console.error('Container ref not available')
+
       return
     }
 
@@ -1176,7 +1164,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
         })
       }
     } catch (error: any) {
-      console.error('Error creating note:', error)
       
       // Check for empty content validation error
       if (error.message?.includes('content cannot be empty') || error.message?.includes('cannot be empty')) {
@@ -1201,7 +1188,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
   const moveNote = useCallback(async (id: string, x: number, y: number) => {
     const currentNote = notes.find(n => n.id === id)
     if (!currentNote) {
-      console.error('❌ Note not found for move:', id)
+
       return
     }
 
@@ -1225,7 +1212,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
 
       // Success - no additional action needed as the optimistic update is already applied
     } catch (error: any) {
-      console.error('❌ Error moving note:', error)
       
       // Rollback the optimistic update
       setNotes(prev => prev.map(n => 
@@ -1256,7 +1242,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
             ))
           }
         } catch (refreshError) {
-          console.error('Failed to refresh note after conflict:', refreshError)
+
           // Fallback to page reload if individual note refresh fails
           setTimeout(() => {
             window.location.reload()
@@ -1287,7 +1273,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     // Get the current note with latest version
     const currentNote = notes.find(n => n.id === id)
     if (!currentNote) {
-      console.error('❌ Current note not found for ID:', id)
+
       return
     }
 
@@ -1311,7 +1297,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
         await apiService.updateNote(id, updateData)
       }
     } catch (error: any) {
-      console.error('❌ Error updating note:', error)
       
       // Check if it's a version conflict
       if (error.message?.includes('modified by another user')) {
@@ -1352,7 +1337,6 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
         await apiService.deleteNote(id)
       }
     } catch (error: any) {
-      console.error('Error deleting note:', error)
       
       // Check if it's a version conflict
       if (error.message?.includes('modified by another user')) {
@@ -1426,7 +1410,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
         duration: 3000,
       })
     } catch (error: any) {
-      console.error('Error uploading image:', error)
+
       toast({
         title: "Upload failed",
         description: error.message || "Failed to upload image. Please try again.",
@@ -1476,7 +1460,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
       })
       
     } catch (error: any) {
-      console.error('❌ Error deleting image:', error)
+
       toast({
         title: "Error",
         description: error.message || "Failed to delete image. Please try again.",
@@ -1512,7 +1496,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
         }
       }
     } catch (error: any) {
-      console.error('❌ Error adding reaction:', error)
+
       toast({
         title: "Error",
         description: error.message || "Failed to add reaction. Please try again.",
@@ -1542,7 +1526,7 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
         }
       }
     } catch (error: any) {
-      console.error('❌ Error removing reaction:', error)
+      // console.error('❌ Error removing reaction:', error)
       toast({
         title: "Error",
         description: error.message || "Failed to remove reaction. Please try again.",
@@ -1632,27 +1616,24 @@ export function MainCanvas({ currentUser, onSignOut }: MainCanvasProps) {
     )
   }
 
-  // Handle sign out
+
   const handleSignOut = async () => {
     try {
-      // Step 1: Sign out from workspace via SignalR (this will remove user completely)
+
       if (signalRService && isConnected) {
         await signalRService.signOut(config.workspace.defaultWorkspaceId)
       }
       
-      // Step 2: Disconnect SignalR
+
       if (signalRService) {
         await signalRService.disconnect()
       }
       
-      // Step 3: Logout from backend
+
       await logout()
       
-      // Step 4: Call parent callback
       onSignOut()
     } catch (error) {
-      console.error('❌ Error during sign out:', error)
-      // Force logout even if there's an error
       onSignOut()
     }
   }

@@ -202,7 +202,7 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
     const trimmedContent = content.trim()
     if (!trimmedContent) {
       // Show error feedback - could use a toast here if available
-      console.warn('Cannot save note with empty content')
+      // console.warn('Cannot save note with empty content')
       return
     }
     
@@ -214,7 +214,7 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
       setHasUnsavedChanges(false)
       setIsEditing(false)
     } catch (error) {
-      console.error('Failed to save note:', error)
+      // console.error('Failed to save note:', error)
       // Optionally show an error toast here
     } finally {
       setIsSaving(false)
@@ -239,7 +239,7 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
         fileInputRef.current.value = ''
       }
     } catch (error) {
-      console.error('Image upload failed:', error)
+        
     } finally {
       setIsUploadingImage(false)
     }
@@ -405,7 +405,7 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
     try {
       await onImageDelete(note.id, note.imageUrls[index])
     } catch (error) {
-      console.error('Failed to delete image:', error)
+      
     } finally {
       setIsDeletingImage(false)
     }
