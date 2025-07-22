@@ -16,18 +16,20 @@ public class NoteService : INoteService
     private readonly IMemoryCache _cache;
     private readonly ILogger<NoteService> _logger;
     private readonly HtmlSanitizer _htmlSanitizer;
+    private readonly IAzureStorageService _storageService;
     private readonly TimeSpan _notesCacheExpiry = TimeSpan.FromMinutes(5);
     
     // Rate limiting for move operations per user per note
     private readonly ConcurrentDictionary<string, DateTime> _lastMoveTime = new();
     private readonly TimeSpan _moveThrottleInterval = TimeSpan.FromMilliseconds(100); // Max 10 moves per second
 
-    public NoteService(IRepository<Note> noteRepository, NotesDbContext dbContext, IMemoryCache cache, ILogger<NoteService> logger)
+    public NoteService(IRepository<Note> noteRepository, NotesDbContext dbContext, IMemoryCache cache, ILogger<NoteService> logger, IAzureStorageService storageService)
     {
         _noteRepository = noteRepository;
         _dbContext = dbContext;
         _cache = cache;
         _logger = logger;
+        _storageService = storageService;
         _htmlSanitizer = new HtmlSanitizer();
     }
 
@@ -567,32 +569,15 @@ public class NoteService : INoteService
             await _noteRepository.UpdateAsync(note);
             await _noteRepository.SaveChangesAsync();
 
-            // Try to delete the physical file
+            // Try to delete the file from Azure Storage
             try
             {
-                // Extract filename from URL (assuming format: http://domain/uploads/filename.ext)
-                var uri = new Uri(imageUrl);
-                var fileName = Path.GetFileName(uri.LocalPath);
-                
-                if (!string.IsNullOrEmpty(fileName))
-                {
-                    var uploadsDir = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads");
-                    var filePath = Path.Combine(uploadsDir, fileName);
-                    
-                    if (File.Exists(filePath))
-                    {
-                        File.Delete(filePath);
-                        _logger.LogInformation("Deleted physical file: {FilePath}", filePath);
-                    }
-                    else
-                    {
-                        _logger.LogWarning("Physical file not found for deletion: {FilePath}", filePath);
-                    }
-                }
+                await _storageService.DeleteFileAsync(imageUrl);
+                _logger.LogInformation("Deleted file from Azure Storage: {ImageUrl}", imageUrl);
             }
             catch (Exception fileEx)
             {
-                _logger.LogWarning(fileEx, "Failed to delete physical file for image: {ImageUrl}", imageUrl);
+                _logger.LogWarning(fileEx, "Failed to delete file from Azure Storage: {ImageUrl}", imageUrl);
                 // Don't fail the operation if file deletion fails
             }
 
