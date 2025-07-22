@@ -2,7 +2,7 @@
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Users, Circle, Eye, Check } from "lucide-react"
+import { Users, Eye, Check } from "lucide-react"
 import { memo, useMemo, useCallback } from "react"
 import { FixedSizeList as List } from "react-window"
 import { getDisplayName } from "@/lib/performance"
@@ -25,6 +25,7 @@ const UserItem = memo(({ index, style, data }: { index: number; style: any; data
   const { users, currentUser, highlightedUsers, onUserClick, getUserColor } = data
   const user = users[index]
   const isHighlighted = highlightedUsers.includes(user.email)
+  const isCurrentUser = user.email === currentUser
   const userColor = getUserColor(user.email)
   const displayName = getDisplayName(user.email)
 
@@ -36,50 +37,63 @@ const UserItem = memo(({ index, style, data }: { index: number; style: any; data
     <div style={style} className="px-3 sm:px-4">
       <Button
         variant="ghost"
-        className={`w-full justify-start h-auto p-2 sm:p-3 min-h-[48px] transition-all duration-200 ${
+        className={`w-full justify-start h-auto p-3 min-h-[56px] transition-all duration-200 rounded-lg ${
           isHighlighted 
-            ? 'bg-muted/50 ring-1 ring-primary/20' 
-            : 'hover:bg-muted/30'
-        }`}
+            ? 'bg-primary/10 ring-2 ring-primary/30 shadow-sm' 
+            : 'hover:bg-muted/50'
+        } ${isCurrentUser ? 'bg-muted/30' : ''}`}
         onClick={handleClick}
       >
-        <div className="flex items-center gap-2 sm:gap-3 w-full">
+        <div className="flex items-center gap-3 w-full">
+          {/* User Avatar */}
           <div className="relative">
-            <div className={`w-7 h-7 sm:w-8 sm:h-8 ${userColor.bg} rounded-full flex items-center justify-center ${
-              isHighlighted ? 'ring-2 ring-offset-1 ring-primary' : ''
+            <div className={`w-9 h-9 ${userColor.bg} rounded-full flex items-center justify-center transition-all duration-200 ${
+              isHighlighted ? 'ring-2 ring-offset-2 ring-primary scale-105' : ''
             }`}>
               {isHighlighted ? (
-                <Check className="w-4 h-4 text-white" />
+                <Check className="w-5 h-5 text-white" />
               ) : (
-                <span className={`text-xs sm:text-sm font-medium ${userColor.text}`}>
+                <span className={`text-sm font-semibold ${userColor.text}`}>
                   {displayName[0].toUpperCase()}
                 </span>
               )}
             </div>
-            <Circle
-              className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 sm:w-3 sm:h-3 ${
-                user.isOnline ? "text-green-500 fill-green-500" : "text-gray-400 fill-gray-400"
-              }`}
-            />
+            
+            {/* Online Status Indicator */}
+            <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-background ${
+              user.isOnline ? "bg-green-500" : "bg-gray-400"
+            }`} />
           </div>
           
+          {/* User Info */}
           <div className="flex-1 text-left min-w-0">
             <div className="flex items-center gap-2">
-              <span className="text-xs sm:text-sm font-medium truncate">
+              <span className={`text-sm font-medium truncate ${
+                isHighlighted ? 'text-primary font-semibold' : 'text-foreground'
+              }`}>
                 {displayName}
-                {user.email === currentUser && " (You)"}
+                {isCurrentUser && (
+                  <span className="text-xs font-normal text-muted-foreground ml-1">(You)</span>
+                )}
               </span>
+              
+              {/* Highlighted indicator */}
               {isHighlighted && (
-                <Eye className="w-3 h-3 sm:w-4 sm:h-4 text-muted-foreground" />
+                <div className="flex items-center gap-1">
+                  <Eye className="w-3 h-3 text-primary" />
+                  <span className="text-xs font-medium text-primary">viewing</span>
+                </div>
               )}
             </div>
+            
+            {/* Note count and status */}
             <div className="flex items-center gap-2 mt-1">
-              <Badge variant="secondary" className="text-xs">
-                {user.noteCount} notes
+              <Badge variant={isHighlighted ? "default" : "secondary"} className="text-xs">
+                {user.noteCount} {user.noteCount === 1 ? 'note' : 'notes'}
               </Badge>
-              {!user.isOnline && <span className="text-xs text-muted-foreground">offline</span>}
-              {isHighlighted && (
-                <span className="text-xs text-muted-foreground font-medium">highlighted</span>
+              
+              {!user.isOnline && (
+                <span className="text-xs text-muted-foreground">offline</span>
               )}
             </div>
           </div>
@@ -149,7 +163,7 @@ const UserSidebar = memo(({ users, currentUser, highlightedUsers, onUserClick, g
            height={listHeight}
            width="100%"
            itemCount={sortedUsers.length}
-           itemSize={60} // Height of each user item
+           itemSize={72} // Height of each user item
            itemData={itemData}
            overscanCount={5} // Render 5 extra items for smooth scrolling
          >
@@ -160,8 +174,8 @@ const UserSidebar = memo(({ users, currentUser, highlightedUsers, onUserClick, g
       <div className="p-3 sm:p-4 border-t space-y-2 flex-shrink-0">
         <div className="text-xs text-muted-foreground">
           {highlightedUsers.length === 0 
-            ? "Tap users to highlight their notes (multi-select)" 
-            : `${highlightedUsers.length} user${highlightedUsers.length > 1 ? 's' : ''} highlighted`
+            ? "Click users to view only their notes" 
+            : `Viewing notes from ${highlightedUsers.length} user${highlightedUsers.length > 1 ? 's' : ''}`
           }
         </div>
         {highlightedUsers.length > 0 && (
@@ -171,7 +185,7 @@ const UserSidebar = memo(({ users, currentUser, highlightedUsers, onUserClick, g
             onClick={clearAllHighlights}
             className="w-full text-xs"
           >
-            Clear All Highlights
+            View All Notes
           </Button>
         )}
       </div>
