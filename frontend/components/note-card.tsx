@@ -484,7 +484,7 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
       ref={cardRef}
       data-note-card="true"
       data-note-id={note.id}
-      className={`absolute w-60 sm:w-72 min-h-32 sm:min-h-36 p-3 sm:p-4 select-none ${
+      className={`absolute w-60 sm:w-72 min-h-32 sm:min-h-36 p-3 sm:p-4 select-none overflow-hidden ${
         isHighlighted 
           ? `ring-2 ${userColor.ring} shadow-xl` 
           : "shadow-md"
@@ -545,7 +545,7 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
             onBlur={handleBlur}
             onKeyDown={handleKeyDown}
             placeholder="Start typing your note..."
-            className="min-h-20 sm:min-h-24 resize-none border border-border/30 rounded-md p-3 focus-visible:ring-1 focus-visible:ring-blue-400 text-sm sm:text-base bg-background/50"
+            className="min-h-20 sm:min-h-24 resize-none border border-border/30 rounded-md p-3 focus-visible:ring-1 focus-visible:ring-blue-400 text-sm sm:text-base bg-background/50 break-words overflow-hidden"
             onClick={handleStopPropagation}
             onMouseDown={handleStopPropagation}
             onTouchStart={handleStopPropagation}
@@ -581,7 +581,7 @@ const NoteCard = memo(({ note, isOwner, isHighlighted, canDrag = isOwner, userCo
         </div>
       ) : (
         <div
-          className={`min-h-20 sm:min-h-24 text-sm whitespace-pre-wrap p-3 rounded-md border border-transparent hover:border-border/30 transition-colors ${
+          className={`min-h-20 sm:min-h-24 text-sm whitespace-pre-wrap break-words p-3 rounded-md border border-transparent hover:border-border/30 transition-colors ${
             isOwner ? "cursor-text" : "cursor-default"
           } ${content ? "" : "text-muted-foreground italic"}`}
           onClick={handleEditClick}
