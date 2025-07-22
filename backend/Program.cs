@@ -1,3 +1,4 @@
+using Azure.Identity;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -11,6 +12,18 @@ using NotesApp.Models;
 using Microsoft.AspNetCore.Http.Features;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Configure Key Vault for production
+if (builder.Environment.IsProduction())
+{
+    var keyVaultUri = builder.Configuration["Azure:KeyVault:VaultUri"];
+    if (!string.IsNullOrEmpty(keyVaultUri))
+    {
+        builder.Configuration.AddAzureKeyVault(
+            new Uri(keyVaultUri),
+            new DefaultAzureCredential());
+    }
+}
 
 // Configure Serilog
 Log.Logger = new LoggerConfiguration()
@@ -46,6 +59,7 @@ builder.Services.AddScoped<INoteService, NoteService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<INoteReactionService, NoteReactionService>();
+builder.Services.AddScoped<IAzureStorageService, AzureStorageService>();
 
 // Add memory cache
 builder.Services.AddMemoryCache();

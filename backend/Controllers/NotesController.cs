@@ -360,6 +360,7 @@ public class NotesController : ControllerBase
     /// </summary>
     /// <param name="noteId">Note ID</param>
     /// <param name="file">Image file to upload</param>
+    /// <param name="storageService">Azure Storage service for file uploads</param>
     /// <returns>Success confirmation with image URL</returns>
     [HttpPost("/api/notes/{noteId}/images")]
     [ProducesResponseType(typeof(ApiResponse<string>), 201)]
@@ -367,7 +368,8 @@ public class NotesController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), 401)]
     public async Task<IActionResult> UploadImage(
         [FromRoute] Guid noteId,
-        [FromForm] IFormFile file)
+        [FromForm] IFormFile file,
+        [FromServices] IAzureStorageService storageService)
     {
         try
         {
@@ -430,23 +432,8 @@ public class NotesController : ControllerBase
                 });
             }
 
-            // Create uploads directory if it doesn't exist
-            var uploadsDir = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads");
-            Directory.CreateDirectory(uploadsDir);
-
-            // Save file with unique name
-            var fileName = $"{Guid.NewGuid()}{Path.GetExtension(file.FileName)}";
-            var filePath = Path.Combine(uploadsDir, fileName);
-
-            using (var stream = new FileStream(filePath, FileMode.Create))
-            {
-                await file.CopyToAsync(stream);
-            }
-
-            // Create absolute URL for the image
-            var request = HttpContext.Request;
-            var baseUrl = $"{request.Scheme}://{request.Host}";
-            var imageUrl = $"{baseUrl}/uploads/{fileName}";
+            // Upload to Azure Blob Storage
+            var imageUrl = await storageService.UploadFileAsync(file);
             
             // Update note with image URL
             var result = await _noteService.AddImageToNoteAsync(noteId, imageUrl);
@@ -454,9 +441,13 @@ public class NotesController : ControllerBase
             if (!result.Success)
             {
                 // Clean up uploaded file if database update fails
-                if (System.IO.File.Exists(filePath))
+                try
                 {
-                    System.IO.File.Delete(filePath);
+                    await storageService.DeleteFileAsync(imageUrl);
+                }
+                catch (Exception deleteEx)
+                {
+                    _logger.LogWarning(deleteEx, "Failed to cleanup uploaded file after database error: {ImageUrl}", imageUrl);
                 }
                 return BadRequest(result);
             }
