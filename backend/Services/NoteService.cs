@@ -318,6 +318,34 @@ public class NoteService : INoteService
                 };
             }
 
+            // Delete associated images from Azure Storage before deleting the note
+            if (!string.IsNullOrEmpty(note.ImageUrls))
+            {
+                try
+                {
+                    var imageUrls = JsonSerializer.Deserialize<List<string>>(note.ImageUrls) ?? new();
+                    
+                    foreach (var imageUrl in imageUrls)
+                    {
+                        try
+                        {
+                            await _storageService.DeleteFileAsync(imageUrl);
+                            _logger.LogInformation("Deleted image from Azure Storage during note deletion: {ImageUrl}", imageUrl);
+                        }
+                        catch (Exception imageEx)
+                        {
+                            _logger.LogWarning(imageEx, "Failed to delete image from Azure Storage during note deletion: {ImageUrl}", imageUrl);
+                            // Continue with other images and note deletion even if one image fails
+                        }
+                    }
+                }
+                catch (Exception parseEx)
+                {
+                    _logger.LogWarning(parseEx, "Failed to parse ImageUrls JSON for note {NoteId}, continuing with note deletion", id);
+                    // Continue with note deletion even if image parsing fails
+                }
+            }
+
             await _noteRepository.DeleteAsync(note);
             await _noteRepository.SaveChangesAsync();
 
