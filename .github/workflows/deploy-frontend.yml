@@ -51,7 +51,7 @@ jobs:
           app_location: "./frontend"
           api_location: ""
           output_location: "out"
-          app_build_command: "pnpm install && pnpm build"
+          app_build_command: "npm run build"
           skip_app_build: false
         env:
           NEXT_PUBLIC_API_URL: "https://collaborative-notes-api.azurewebsites.net"
